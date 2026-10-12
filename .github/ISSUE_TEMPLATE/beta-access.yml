@@ -1,0 +1,43 @@
+name: Private beta interest
+description: Express interest in testing Vibe Monitor. This is a PUBLIC issue — do not share private details or activation codes.
+title: "[Beta] Interested in trying Vibe Monitor"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest in Vibe Monitor. The current npm package is a **private beta**, not yet the public open-source release.
+
+        **This GitHub issue is public. Never include your email address, source code, repository URLs, passwords, enterprise network details, activation codes or other secrets.**
+        Requesting access does not automatically grant a beta activation code. Maintainers will reply with further instructions if places are available.
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which coding agent do you use?
+      options:
+        - Codex
+        - Claude Code
+        - Cursor
+        - Antigravity
+        - TRAE
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Primary operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: purpose
+    attributes:
+      label: What do you want to learn from your project's architecture?
+      description: Keep this general and non-sensitive. No links or identifying project details are necessary.
+      placeholder: "For example: understand coupling before adding more AI-generated features."
+    validations:
+      required: false
