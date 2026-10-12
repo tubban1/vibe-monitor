@@ -3,7 +3,7 @@
   'use strict';
   const translations = {
     zh: {
-      navWhy:'为什么需要 Vibe',navHow:'工作方式',navFeatures:'核心能力',navPlans:'服务等级',navBeta:'体验 Beta',
+      copy:'复制', navWhy:'为什么需要 Vibe',navHow:'工作方式',navFeatures:'核心能力',navPlans:'服务等级',navBeta:'体验 Beta',
       eyebrow:'为 AI 编程打造的架构智能层',heroLine1:'让 AI 飞速开发。',heroLine2:'让架构始终可控。',
       heroLead:'AI 正在持续添加功能。Vibe Monitor 帮你判断项目架构是否还能跟上发展速度，以及现在真正值得做什么。',
       heroCta:'了解私有 Beta',heroGithub:'查看 GitHub',noteOne:'源码留在本地',noteTwo:'面向 AI 编程工作流',
@@ -61,6 +61,8 @@
         element.innerHTML = original.get(element);
       }
     }
+    const copyAria = document.getElementById('copy-install');
+    if (copyAria) copyAria.setAttribute('aria-label', locale === 'zh' ? '复制安装命令' : 'Copy installation command');
     document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
     document.title = locale === 'zh'
       ? 'Vibe Monitor — AI 编程架构智能顾问'
