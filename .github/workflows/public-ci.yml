@@ -17,6 +17,8 @@ concurrency:
 jobs:
   public-surface:
     name: Public repository boundary (Ubuntu)
+    outputs:
+      has_client: ${{ steps.detect-client.outputs.has_client }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -34,5 +36,39 @@ jobs:
           test ! -d website
           test ! -e .env
           test -f .github/ISSUE_TEMPLATE/beta-access.yml
-# Once the audited CLI/MCP source and open-source LICENSE land here,
-# add true npm install/test/build and Windows/macOS/Linux job matrix.
+      - id: detect-client
+        name: Detect audited OSS client sources
+        shell: bash
+        run: |
+          if [ -d src ]; then
+            echo "has_client=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_client=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  client-platforms:
+    name: OSS client / ${{ matrix.os }} / Node 22
+    needs: public-surface
+    if: needs.public-surface.outputs.has_client == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+      - run: npm pack --dry-run
+      - run: node ./dist/vibe-monitor.mjs --help
+
+# This matrix remains skipped until reviewed and licensed CLI/MCP src/ exists
+# in the PUBLIC repo; app/Cloud files and private source are never copied here.
