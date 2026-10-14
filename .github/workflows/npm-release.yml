@@ -36,6 +36,16 @@ jobs:
           npm install --global npm@11.21.0 --registry=https://registry.npmjs.org --no-audit --no-fund
           test "$(npm --version)" = "11.21.0"
 
+      - name: Validate GitHub OIDC identity is available (without showing credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          test "$GITHUB_REPOSITORY" = 'tubban1/vibe-monitor'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          echo "GitHub OIDC request capability present for this protected job."
+
       - name: Verify exact existing release and show current tags
         shell: bash
         run: |
@@ -50,7 +60,9 @@ jobs:
           set -euo pipefail
           # Uses GitHub OIDC + the explicitly approved npm dist-tag permission;
           # no NPM_TOKEN, npm publish, source checkout or package upload.
-          npm dist-tag add @vibe-monitor/setup@0.3.0-beta.41 latest --registry=https://registry.npmjs.org
+          # Verbose metadata errors distinguish OIDC exchange mismatch
+          # from ordinary token authentication; no credential values printed.
+          npm --loglevel=verbose dist-tag add @vibe-monitor/setup@0.3.0-beta.41 latest --registry=https://registry.npmjs.org
 
       - name: Verify both registry tags match existing beta.41
         shell: bash
