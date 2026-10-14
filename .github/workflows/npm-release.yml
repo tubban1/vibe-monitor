@@ -27,7 +27,8 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          # Do not set registry-url here: setup-node otherwise injects a
+          # placeholder NODE_AUTH_TOKEN that masks npm's short-lived OIDC auth.
           package-manager-cache: false
 
       - name: Install npm version supporting OIDC dist-tag operations
