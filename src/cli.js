@@ -374,7 +374,12 @@ if (command === "install") {
   }
 // QA opt-in only. A pairing code must never be passed as a CLI argument.
 } else if (command === "account" && args[1] === "link") {
-  if (!args.includes("--qa") || process.env.VIBE_PORTAL_PAIRING_QA !== "1") {
+  if (isOpenClientDistribution()) {
+    // Private Beta QA pairing is not a public account entitlement contract.
+    // Never let an environment variable expose this legacy transport in OSS.
+    console.error("Account pairing is not released for the open client yet.");
+    process.exitCode = 2;
+  } else if (!args.includes("--qa") || process.env.VIBE_PORTAL_PAIRING_QA !== "1") {
     console.error("Account pairing is not released yet. Existing installations are unchanged.");
     process.exitCode = 2;
   } else if (args.includes("--code") || args.some(v => v.startsWith("--code="))) {

@@ -81,6 +81,11 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(intelligence.status,2,"Unified client must refuse legacy intelligence upload activation");
  assert.equal(run("cloud","sync","--json").status,2,"Beta Cloud telemetry sync must be blocked");
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
+ const qaPairing=spawnSync(process.execPath,["--import",block,cli,"account","link","--qa"],
+  {cwd:temp,env:{...env,VIBE_PORTAL_PAIRING_QA:"1"},encoding:"utf8",timeout:30000,maxBuffer:3e6});
+ assert.equal(qaPairing.status,2,"Beta QA-only account pairing must be blocked in the open client even with QA env enabled");
+ assert.match(qaPairing.stderr,/not released for the open client/);
+ assert.equal(fs.existsSync(path.join(app,"cloud","client.json")),false);
  const strategy=run("cloud","config","--json");
  assert.equal(strategy.status,0);
  assert.equal(JSON.parse(strategy.stdout).source,"local-baseline");
