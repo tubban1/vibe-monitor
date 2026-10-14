@@ -93,6 +93,17 @@ test("signed strategy response cannot read beyond stream limit",async()=>{
  assert.equal(out.source,"local-baseline");
  assert.equal(fullReads,0);
 });
+test("signed strategy stream fails closed on excess zero-byte fragments",async()=>{
+ const client=createCommunityPolicyClient();
+ let chunks=0;
+ const result=await client({publicKeyPem:"synthetic-test-public-key",now:()=>Date.UTC(2026,9,15),
+  fetchImpl:async()=>({ok:true,headers:{get:()=>null},
+   body:{async *[Symbol.asyncIterator](){
+    for(let i=0;i<6000;i++){chunks++;yield new Uint8Array(0);}
+   }}})});
+ assert.equal(result.source,"local-baseline");
+ assert.ok(chunks<=4097,"streaming read must stop at the chunk limit");
+});
 test("Node source is pinned to the official artifact URL",()=>{
  const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};
  assert.equal(nodeDownloadSources(spec).length,2);

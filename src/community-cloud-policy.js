@@ -16,6 +16,9 @@ export const COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
 const MAX_AGE=3600; // signed policy can live at most one hour, RAM only
 const REFRESH=900;  // refresh from Cloud after fifteen minutes
 const MAX_BYTES=16384;
+// Bound tiny or empty streamed fragments too: a bytes-only limit cannot
+// constrain CPU and parts-array growth from infinitely many zero-byte chunks.
+const MAX_CHUNKS=4096;
 // Reject oversized signed policy documents during streaming, before allocating
 // an unbounded response.text() body.
 async function readBoundedPolicyResponse(response){
@@ -23,8 +26,9 @@ async function readBoundedPolicyResponse(response){
  if(Number.isFinite(claimed)&&claimed>MAX_BYTES)throw Error("policy_oversized");
  if(response.body&&typeof response.body[Symbol.asyncIterator]==="function"){
   const parts=[];
-  let count=0;
+  let count=0,chunks=0;
   for await(const chunk of response.body){
+   if(++chunks>MAX_CHUNKS)throw Error("policy_oversized");
    const length=Number(chunk?.byteLength);
    if(Number.isFinite(length)&&length>=0&&count+length>MAX_BYTES)
     throw Error("policy_oversized");
