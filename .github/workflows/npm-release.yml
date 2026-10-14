@@ -1,0 +1,69 @@
+name: npm release metadata (OIDC dist-tag only)
+
+# Deliberately bound to the exact previously published beta.41.
+# Release new packages under a separately reviewed release workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vibe-monitor-npm-dist-tag-latest
+  cancel-in-progress: false
+
+jobs:
+  promote-existing-beta41:
+    name: Promote existing beta.41 to latest without publishing
+    if: github.repository == 'tubban1/vibe-monitor' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: npm-release
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup a GitHub-hosted Node runtime
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install npm version supporting OIDC dist-tag operations
+        run: |
+          npm install --global npm@11.21.0 --registry=https://registry.npmjs.org --no-audit --no-fund
+          test "$(npm --version)" = "11.21.0"
+
+      - name: Verify exact existing release and show current tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          published="$(npm view @vibe-monitor/setup@0.3.0-beta.41 version --registry=https://registry.npmjs.org --prefer-online)"
+          test "$published" = "0.3.0-beta.41"
+          npm dist-tag ls @vibe-monitor/setup --registry=https://registry.npmjs.org
+
+      - name: Move latest to the already published beta.41 using OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Uses GitHub OIDC + the explicitly approved npm dist-tag permission;
+          # no NPM_TOKEN, npm publish, source checkout or package upload.
+          npm dist-tag add @vibe-monitor/setup@0.3.0-beta.41 latest --registry=https://registry.npmjs.org
+
+      - name: Verify both registry tags match existing beta.41
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            tags="$(npm dist-tag ls @vibe-monitor/setup --registry=https://registry.npmjs.org --prefer-online)"
+            if grep -Fqx 'beta: 0.3.0-beta.41' <<<"$tags" && grep -Fqx 'latest: 0.3.0-beta.41' <<<"$tags"; then
+              printf '%s\n' "$tags"
+              echo "Verified: latest and beta are both @vibe-monitor/setup@0.3.0-beta.41"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Registry tags not fully updated after 30 seconds." >&2
+          printf '%s\n' "$tags"
+          exit 1
