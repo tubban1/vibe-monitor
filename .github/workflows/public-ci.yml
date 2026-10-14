@@ -79,6 +79,9 @@ jobs:
           cache: npm
       - name: Install reproducible dependencies
         run: npm ci --no-audit --no-fund
+      - name: Audit runtime npm dependencies on official registry
+        if: matrix.os == 'ubuntu-latest'
+        run: npm audit --omit=dev --registry=https://registry.npmjs.org --audit-level=moderate
       - name: Verify native Tree-sitter parser on this OS
         shell: bash
         run: |

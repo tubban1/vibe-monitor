@@ -53,6 +53,11 @@ test("deleted leaked Git token and .env path remain forbidden in history",t=>{
  assert.ok(report.issues.some(x=>x.kind==="forbidden_historical_path"&&x.location===".env.staging"));
  assert.ok(report.commitsReviewed>=2);
 });
+test("future public CI includes official npm production vulnerability audit",()=>{
+ const yml=fs.readFileSync(new URL("../.github/workflows/public-ci.yml",import.meta.url),"utf8");
+ assert.match(yml,/npm audit --omit=dev --registry=https:\/\/registry\.npmjs\.org --audit-level=moderate/);
+ assert.match(yml,/if: matrix\.os == 'ubuntu-latest'/);
+});
 test("history review requires correct ancestor baseline",t=>{
  const {root}=temporaryRepo(t);
  assert.throws(()=>auditIntroducedHistory({repoPath:root,baseline:"refs/heads/not-a-real-branch"}),
