@@ -25,6 +25,16 @@ test("Unified open client has Apache-2.0 license, reproducible deps, and no publ
  assert.equal(COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,null,
   "new signing verification root must not ship before Cloud security sign-off");
 });
+test("agent MCP fallback pins exact installed version and official registry",async()=>{
+ const {runtimeSpec}=await import("../src/setup.js");
+ const {CLIENT_VERSION}=await import("../src/constants.js");
+ const fallback=runtimeSpec({});
+ assert.equal(fallback.command,"npx");
+ assert.deepEqual(fallback.args,["-y","--registry=https://registry.npmjs.org",
+   "@vibe-monitor/setup@"+CLIENT_VERSION,"mcp"]);
+ assert.deepEqual(runtimeSpec({runtimeCommand:"/trusted/stable/launcher"}),
+   {command:"/trusted/stable/launcher",args:["mcp"]});
+});
 test("single client dependency lock has reviewed SPDX license categories",{
  skip:!staged?"OSS-only dependency contract":false
 },()=>{

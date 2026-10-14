@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import JSON5 from "json5";
+import {CLIENT_VERSION} from "./constants.js";
 
 const START = "<!-- vibe-monitor:start -->";
 const END = "<!-- vibe-monitor:end -->";
@@ -160,7 +161,10 @@ function commandExists(command) {
 export function runtimeSpec(options = {}) {
   if (options.runtimeCommand) return { command: options.runtimeCommand, args: ["mcp"] };
   if (options.local) return { command: "node", args: [path.resolve(options.cliPath), "mcp"] };
-  return { command: "npx", args: ["-y", "@vibe-monitor/setup@latest", "mcp"] };
+  // Last-resort setup-only fallback: never select a stale npm dist-tag or regional mirror.
+  // Normal installs use the verified, rollback-capable local launcher instead.
+  return { command: "npx", args: ["-y", "--registry=https://registry.npmjs.org",
+    `@vibe-monitor/setup@${CLIENT_VERSION}`, "mcp"] };
 }
 export const AGENT_ADAPTER_NAMES = Object.freeze(["codex", "claude", "cursor", "antigravity", "trae"]);
 
