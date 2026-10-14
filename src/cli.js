@@ -555,10 +555,10 @@ if (command === "install") {
     "  vibe-monitor license",
     "  vibe-monitor doctor",
     "  vibe-monitor activity [--limit N] [--follow] [--json]",
-    "  vibe-monitor telemetry status|inspect|on|off [--limit N]",
-    "  vibe-monitor telemetry intelligence on|off|status",
-    "  vibe-monitor cloud status|config|sync",
-    "  vibe-monitor cloud register [--url URL] [--invite CODE]",
+    "  vibe-monitor telemetry " + (isOpenClientDistribution() ? "status|inspect|off" : "status|inspect|on|off") + " [--limit N]",
+    ...(isOpenClientDistribution() ? [] : ["  vibe-monitor telemetry intelligence on|off|status"]),
+    "  vibe-monitor cloud " + (isOpenClientDistribution() ? "status|config" : "status|config|sync"),
+    ...(isOpenClientDistribution() ? [] : ["  vibe-monitor cloud register [--url URL] [--invite CODE]"]),
     "  vibe-monitor update status|check|stage|activate|rollback [--refresh]",
     "  vibe-monitor security status|migrate",
     "  vibe-monitor security show [project] [--section latest|findings|intent|notice|snapshots|all]",
@@ -572,6 +572,6 @@ if (command === "install") {
     "  - source read-only",
     "  - local history by default",
     "  - " + (isOpenClientDistribution() ? "Telemetry OFF by default; Beta upload APIs unavailable" : "private-beta telemetry is required and inspectable"),
-    "  - private-beta cloud transport uses a per-installation token"
+    "  - " + (isOpenClientDistribution() ? "signed Cloud policy stays in process memory only" : "private-beta cloud transport uses a per-installation token")
   ].join("\n"));
 }

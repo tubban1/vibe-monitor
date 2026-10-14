@@ -7,7 +7,7 @@ import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
-test("audited Community source performs offline scan, install and uninstall with no upload",{
+test("unified open client performs offline scan, install and uninstall with no upload",{
  skip:DISTRIBUTION_MODE!=="open-client"?"private Beta remains separately tested":false
 },t=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-community-public-"));
@@ -28,6 +28,12 @@ test("audited Community source performs offline scan, install and uninstall with
  const cli=path.join(root,"src","cli.js");
  const run=(...args)=>spawnSync(process.execPath,["--import",block,cli,...args],
   {cwd:temp,env,encoding:"utf8",timeout:30000,maxBuffer:3e6});
+ const help=run("--help");
+ assert.equal(help.status,0,help.stderr?.slice(0,600));
+ assert.match(help.stdout,/vibe-monitor cloud status\|config/);
+ assert.match(help.stdout,/signed Cloud policy stays in process memory only/);
+ assert.doesNotMatch(help.stdout,/vibe-monitor cloud register|vibe-monitor cloud status\|config\|sync|vibe-monitor telemetry intelligence|vibe-monitor telemetry status\|inspect\|on/,
+  "The one open client must not advertise unavailable legacy Beta upload commands");
  const scan=run("scan",project,"--json");
  assert.equal(scan.status,0,scan.stderr?.slice(0,600));
  const scanned=JSON.parse(scan.stdout);
@@ -62,7 +68,7 @@ test("audited Community source performs offline scan, install and uninstall with
  assert.match(fs.readFileSync(config,"utf8"),/mcp_servers\.vibe-monitor/);
  assert.equal(fs.existsSync(path.join(app,"cloud","client.json")),false);
  assert.equal(fs.existsSync(path.join(app,"installation-attempts")),false,
-  "Community install must not persist Beta install tracking events");
+  "Unified client must not persist Beta install tracking events");
  assert.equal(fs.existsSync(path.join(app,"telemetry","queue.jsonl")),false);
  const setup=run("setup","--codex","--no-telemetry","--json");
  assert.equal(setup.status,0,setup.stderr?.slice(0,600));
@@ -70,9 +76,9 @@ test("audited Community source performs offline scan, install and uninstall with
  assert.equal(configured.telemetry.enabled,false);
  assert.equal(configured.telemetry.requiredDuringPrivateBeta,false);
  const optIn=run("telemetry","on");
- assert.equal(optIn.status,2,"Community must refuse telemetry upload activation");
+ assert.equal(optIn.status,2,"Unified client must refuse legacy telemetry upload activation");
  const intelligence=run("telemetry","intelligence","on");
- assert.equal(intelligence.status,2,"Community must refuse intelligence upload activation");
+ assert.equal(intelligence.status,2,"Unified client must refuse legacy intelligence upload activation");
  assert.equal(run("cloud","sync","--json").status,2,"Beta Cloud telemetry sync must be blocked");
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
  const strategy=run("cloud","config","--json");
