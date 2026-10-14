@@ -54,6 +54,11 @@ test("Unified signed cloud strategy stays in memory without telemetry",{
  assert.match(dist,/fetchCommunityCloudPolicy/);
 });
 
+test("offline preload uses a file URL, never a Windows drive path",()=>{
+ const smoke=fs.readFileSync(path.join(root,"test/oss-community-public-smoke.test.js"),"utf8");
+ assert.match(smoke,/pathToFileURL\(block\)\.href/);
+ assert.doesNotMatch(smoke,/\["--import",block,cli/);
+});
 test("signed strategy response cannot read beyond stream limit",async()=>{
  const client=createCommunityPolicyClient();
  let fullReads=0;

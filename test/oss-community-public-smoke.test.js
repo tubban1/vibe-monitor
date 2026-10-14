@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {spawnSync} from "node:child_process";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath,pathToFileURL} from "node:url";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {InstallTracker,createInstallTracker,retryPendingInstallAttempts} from "../src/install-tracking.js";
 import {acceptAccountPairing} from "../src/pairing.js";
@@ -21,6 +21,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  fs.writeFileSync(path.join(project,"src","index.js"),
   Array.from({length:75},(_,i)=>"export function helper"+i+"(x){return x+"+i+";}").join("\n"));
  const block=path.join(temp,"block-fetch.mjs");
+ const blockUrl=pathToFileURL(block).href;
  fs.writeFileSync(block,'globalThis.fetch=async()=>{throw Error("UNEXPECTED_CLOUD");};\n');
  const env={...process.env,HOME:home,USERPROFILE:home,
   VIBE_MONITOR_HOME:app,VIBE_MONITOR_SETUP_HOME:home,
@@ -28,7 +29,7 @@ test("unified open client performs offline scan, install and uninstall with no u
   VIBE_MONITOR_TEST_SECRET_DIR:path.join(temp,"secrets"),
   VIBE_MONITOR_TEST_MASTER_KEY:"f".repeat(64)};
  const cli=path.join(root,"src","cli.js");
- const run=(...args)=>spawnSync(process.execPath,["--import",block,cli,...args],
+ const run=(...args)=>spawnSync(process.execPath,["--import",blockUrl,cli,...args],
   {cwd:temp,env,encoding:"utf8",timeout:30000,maxBuffer:3e6});
  const help=run("--help");
  assert.equal(help.status,0,help.stderr?.slice(0,600));
@@ -83,7 +84,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(intelligence.status,2,"Unified client must refuse legacy intelligence upload activation");
  assert.equal(run("cloud","sync","--json").status,2,"Beta Cloud telemetry sync must be blocked");
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
- const qaPairing=spawnSync(process.execPath,["--import",block,cli,"account","link","--qa"],
+ const qaPairing=spawnSync(process.execPath,["--import",blockUrl,cli,"account","link","--qa"],
   {cwd:temp,env:{...env,VIBE_PORTAL_PAIRING_QA:"1"},encoding:"utf8",timeout:30000,maxBuffer:3e6});
  assert.equal(qaPairing.status,2,"Beta QA-only account pairing must be blocked in the open client even with QA env enabled");
  assert.match(qaPairing.stderr,/not released for the open client/);
@@ -114,7 +115,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.doesNotMatch(fs.readFileSync(config,"utf8"),/mcp_servers\.vibe-monitor/);
  assert.equal(fs.existsSync(path.join(app,"telemetry","queue.jsonl")),false);
  // The one installer supports local lifecycle opt-out; it never invokes Beta tracking.
- const off=spawnSync(process.execPath,["--import",block,cli,"install","--codex","--json"],
+ const off=spawnSync(process.execPath,["--import",blockUrl,cli,"install","--codex","--json"],
   {cwd:temp,env:{...env,VIBE_MONITOR_LOCAL_LIFECYCLE:"off"},encoding:"utf8",timeout:30000,maxBuffer:3e6});
  assert.equal(off.status,0,off.stderr?.slice(0,600));
  const offResult=JSON.parse(off.stdout);
