@@ -404,8 +404,39 @@ const TRUSTED_NODE_SHA256 = Object.freeze({
   "node-v22.23.3-linux-x64.tar.xz": "df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de"
 });
 export function nodeDownloadSources(spec) {
+  const official = "https://nodejs.org/dist/v" + BUNDLED_NODE_VERSION + "/" + spec.filename;
+  // Only an exact official artifact can select the pinned China mirror fallback.
+  if (spec.archiveUrl !== official) throw new Error("runtime_archive_source_untrusted");
   const mirror = "https://mirrors.nju.edu.cn/nodejs-release/v" + BUNDLED_NODE_VERSION + "/" + spec.filename;
-  return [spec.archiveUrl, mirror];
+  return [official, mirror];
+}
+
+const MAX_RUNTIME_ARCHIVE_BYTES = 160 * 1024 * 1024;
+async function readBoundedRuntimeArchive(response) {
+  const declared = Number(response.headers?.get?.("content-length") || 0);
+  if (Number.isFinite(declared) && declared > MAX_RUNTIME_ARCHIVE_BYTES) {
+    throw new Error("runtime_archive_too_large");
+  }
+  // Streaming prevents an unbounded allocation when Content-Length is absent.
+  if (response.body && typeof response.body[Symbol.asyncIterator] === "function") {
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of response.body) {
+      const incoming = Number(chunk?.byteLength);
+      if (Number.isFinite(incoming) && incoming >= 0 && total + incoming > MAX_RUNTIME_ARCHIVE_BYTES) {
+        throw new Error("runtime_archive_too_large");
+      }
+      const bytes = Buffer.from(chunk);
+      total += bytes.length;
+      if (total > MAX_RUNTIME_ARCHIVE_BYTES) throw new Error("runtime_archive_too_large");
+      chunks.push(bytes);
+    }
+    return Buffer.concat(chunks, total);
+  }
+  // Support minimal, deterministic test doubles with arrayBuffer only.
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > MAX_RUNTIME_ARCHIVE_BYTES) throw new Error("runtime_archive_too_large");
+  return bytes;
 }
 
 export async function fetchVerifiedNode(spec) {
@@ -416,7 +447,7 @@ export async function fetchVerifiedNode(spec) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(index === 0 ? 8000 : 90000) });
       if (!response.ok) throw new Error("HTTP_" + response.status);
-      const archive = Buffer.from(await response.arrayBuffer());
+      const archive = await readBoundedRuntimeArchive(response);
       const actual = crypto.createHash("sha256").update(archive).digest("hex");
       if (actual !== expected) throw new Error("SHA256_MISMATCH");
       return archive;

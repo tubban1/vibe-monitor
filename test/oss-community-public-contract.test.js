@@ -5,6 +5,7 @@ import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM} from "../src/community-cloud-policy.js";
+import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
 test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{
@@ -37,4 +38,28 @@ test("Unified signed cloud strategy stays in memory without telemetry",{
  assert.doesNotMatch(policy,/node:fs|writeFileSync|readFileSync|signed-v1\.json|vibeHome/);
  assert.match(policy,/createCommunityPolicyClient/);
  assert.match(dist,/fetchCommunityCloudPolicy/);
+});
+
+test("Node source is pinned to the official artifact URL",()=>{
+ const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};
+ assert.equal(nodeDownloadSources(spec).length,2);
+ assert.throws(()=>nodeDownloadSources({...spec,archiveUrl:"https://example.invalid/archive"}),/runtime_archive_source_untrusted/);
+});
+
+test("Node archive response rejects excessive Content-Length before reading",async()=>{
+ const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};
+ const original=globalThis.fetch;
+ let calls=0,read=0;
+ globalThis.fetch=async()=>{calls++;return {ok:true,headers:{get:()=>String(161*1024*1024)},arrayBuffer:async()=>{read++;return new ArrayBuffer(0)}};};
+ try{await assert.rejects(fetchVerifiedNode(spec),/runtime_download_failed/);assert.equal(calls,2);assert.equal(read,0);}
+ finally{globalThis.fetch=original;}
+});
+
+test("Node archive streaming bytes are bounded even without Content-Length",async()=>{
+ const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};
+ const original=globalThis.fetch;
+ let calls=0;
+ globalThis.fetch=async()=>{calls++;return {ok:true,headers:{get:()=>null},body:{async *[Symbol.asyncIterator](){yield {byteLength:161*1024*1024};}}};};
+ try{await assert.rejects(fetchVerifiedNode(spec),/runtime_download_failed/);assert.equal(calls,2);}
+ finally{globalThis.fetch=original;}
 });
