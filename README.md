@@ -8,7 +8,7 @@ Vibe Monitor helps Vibe Coders analyze local architecture evidence, follow the t
 
 ## Open-source client — in preparation
 
-This PUBLIC repository is for the future open-source Vibe Monitor **CLI / MCP client**. Community, Pro, and Team will use one client codebase. Optional private Cloud services will supply advanced intelligence, managed account/history capabilities and server-enforced premium entitlements.
+This PUBLIC repository is for the future open-source Vibe Monitor **CLI / MCP client**. Free, Pro, and Team will use **the same client, installer, and update pipeline**, with access and quotas determined by Vibe Cloud. There is no Community subscription or separate edition. Optional private Cloud services provide signed strategies, managed account/history capabilities, and server-enforced premium entitlements.
 
 **The client source and an approved open-source license have NOT been published yet.** This public repository is not an open-source release of the current npm package.
 
