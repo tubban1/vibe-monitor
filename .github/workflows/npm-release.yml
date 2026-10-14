@@ -60,9 +60,10 @@ jobs:
           set -euo pipefail
           # Uses GitHub OIDC + the explicitly approved npm dist-tag permission;
           # no NPM_TOKEN, npm publish, source checkout or package upload.
-          # Verbose metadata errors distinguish OIDC exchange mismatch
-          # from ordinary token authentication; no credential values printed.
-          npm --loglevel=verbose dist-tag add @vibe-monitor/setup@0.3.0-beta.41 latest --registry=https://registry.npmjs.org
+          # OIDC exchange must succeed before dist-tag write. If npm returns
+          # registry 404 at /-/npm/v1/oidc/token/exchange/package/, stop and
+          # escalate to npm support; never fall back to exposed npm tokens.
+          npm dist-tag add @vibe-monitor/setup@0.3.0-beta.41 latest --registry=https://registry.npmjs.org
 
       - name: Verify both registry tags match existing beta.41
         shell: bash
