@@ -6,6 +6,8 @@ import path from "node:path";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
+import {InstallTracker,createInstallTracker,retryPendingInstallAttempts} from "../src/install-tracking.js";
+import {acceptAccountPairing} from "../src/pairing.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 test("unified open client performs offline scan, install and uninstall with no upload",{
  skip:DISTRIBUTION_MODE!=="open-client"?"private Beta remains separately tested":false
@@ -32,8 +34,8 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(help.status,0,help.stderr?.slice(0,600));
  assert.match(help.stdout,/vibe-monitor cloud status\|config/);
  assert.match(help.stdout,/signed Cloud policy stays in process memory only/);
- assert.doesNotMatch(help.stdout,/vibe-monitor cloud register|vibe-monitor cloud status\|config\|sync|vibe-monitor telemetry intelligence|vibe-monitor telemetry status\|inspect\|on/,
-  "The one open client must not advertise unavailable legacy Beta upload commands");
+ assert.doesNotMatch(help.stdout,/vibe-monitor cloud register|vibe-monitor cloud status\|config\|sync|vibe-monitor telemetry intelligence|vibe-monitor telemetry status\|inspect\|on|vibe-monitor update status\|check\|stage/,
+  "The one open client must not advertise unavailable legacy Beta upload or unsigned updater commands");
  const scan=run("scan",project,"--json");
  assert.equal(scan.status,0,scan.stderr?.slice(0,600));
  const scanned=JSON.parse(scan.stdout);
@@ -86,6 +88,23 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(qaPairing.status,2,"Beta QA-only account pairing must be blocked in the open client even with QA env enabled");
  assert.match(qaPairing.stderr,/not released for the open client/);
  assert.equal(fs.existsSync(path.join(app,"cloud","client.json")),false);
+ // Before a signed OSS artifact root ships, the old Beta update system is inert.
+ for(const action of ["status","check"]){
+  const query=run("update",action,"--json");
+  assert.equal(query.status,0,query.stderr?.slice(0,600));
+  const status=JSON.parse(query.stdout);
+  assert.equal(status.updateEnabled,false);
+  assert.equal(status.available,false);
+  assert.equal(status.source,"open-client");
+  assert.equal(status.reason,"signed_update_channel_not_configured");
+ }
+ for(const action of ["stage","activate","rollback"]){
+  const mutation=run("update",action,"--json");
+  assert.equal(mutation.status,2,"Unsigned open-client update "+action+" must fail closed");
+  assert.match(mutation.stderr,/signed_update_channel_not_configured/);
+ }
+ assert.equal(fs.existsSync(path.join(app,"updates")),false,
+  "Open-client legacy updater must not persist update state");
  const strategy=run("cloud","config","--json");
  assert.equal(strategy.status,0);
  assert.equal(JSON.parse(strategy.stdout).source,"local-baseline");
@@ -105,4 +124,41 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.deepEqual(fs.readdirSync(lifecycleDir),attempts);
  assert.equal(fs.existsSync(path.join(app,"installation-attempts")),false);
  assert.equal(fs.existsSync(path.join(app,"telemetry","queue.jsonl")),false);
+ const inherited=path.join(app,"cloud","client.json");
+ fs.mkdirSync(path.dirname(inherited),{recursive:true});
+ const oldConfig=JSON.stringify({baseUrl:"https://example.invalid",installationId:"old-qa",token:"test-fixture-value"});
+ fs.writeFileSync(inherited,oldConfig);
+ const resultLegacy=run("license","--json");
+ assert.equal(resultLegacy.status,0,resultLegacy.stderr?.slice(0,400));
+ assert.equal(JSON.parse(resultLegacy.stdout).registered,false);
+ assert.equal(fs.readFileSync(inherited,"utf8"),oldConfig);
+ const legacyTelemetry=path.join(app,"telemetry","config.json");
+ fs.mkdirSync(path.dirname(legacyTelemetry),{recursive:true});
+ const previousConsent=JSON.stringify({enabled:true,consentVersion:"private-beta-v4"});
+ fs.writeFileSync(legacyTelemetry,previousConsent);
+ const optOut=run("telemetry","off","--json");
+ assert.equal(optOut.status,0,optOut.stderr?.slice(0,400));
+ assert.equal(JSON.parse(optOut.stdout).enabled,false);
+ assert.equal(fs.readFileSync(legacyTelemetry,"utf8"),previousConsent,
+  "Open-client must not mutate legacy Beta consent");
+ const status=run("telemetry","status","--json");
+ assert.equal(status.status,0,status.stderr?.slice(0,400));
+ assert.equal(JSON.parse(status.stdout).cloudTransportConfigured,false);
+ assert.equal(fs.readFileSync(inherited,"utf8"),oldConfig);
+});
+
+test("open client lower-level Beta pairing and installer tracker cannot upload or write",{skip:DISTRIBUTION_MODE!=="open-client"?"Beta API remains separately tested":false},async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-open-no-beta-"));
+ t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ let attempted=0;
+ const neverFetch=async()=>{attempted++;throw Error("legacy_upload_attempted");};
+ assert.equal(createInstallTracker({baseUrl:"https://vibe-api.fde.fan",home:root,fetchImpl:neverFetch}),null);
+ const tracker=new InstallTracker({baseUrl:"https://vibe-api.fde.fan",home:root,fetchImpl:neverFetch});
+ tracker.mark("started");
+ assert.deepEqual(fs.readdirSync(root),[]);
+ assert.equal(await tracker.flush(),false);
+ assert.deepEqual(await retryPendingInstallAttempts({baseUrl:"https://vibe-api.fde.fan"}),{retried:0});
+ const pair=await acceptAccountPairing({client:{baseUrl:"https://vibe-api.fde.fan",token:"fixture"},code:"a".repeat(64),fetchImpl:neverFetch});
+ assert.deepEqual(pair,{accepted:false,reason:"legacy_beta_pairing_disabled"});
+ assert.equal(attempted,0);
 });

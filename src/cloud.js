@@ -12,6 +12,7 @@ import {
 import { readSecret, writeSecret } from "./secure-store.js";
 import { CLIENT_VERSION } from "./constants.js";
 import { getOrCreateDeviceIdentity } from "./device.js";
+import { isOpenClientDistribution } from "./distribution.js";
 import {DEFAULT_POLICY, clampNumber, sanitizeRemotePolicy} from "./policy-sanitizer.js";
 export {sanitizeRemotePolicy} from "./policy-sanitizer.js";
 
@@ -126,6 +127,8 @@ export function defaultPolicy() {
 }
 
 export function loadCloudClient() {
+  // The open client never reads, imports or migrates legacy private-Beta tokens.
+  if (isOpenClientDistribution()) return null;
   const file = cloudFile();
   const stored = safeJsonRead(file, null);
   if (!stored) return null;
@@ -144,6 +147,19 @@ export function loadCloudClient() {
 }
 
 export function cloudStatus() {
+  // License/doctor must not reveal stale Beta identity or touch its credentials.
+  if (isOpenClientDistribution()) return {
+    registered: false,
+    baseUrl: null,
+    installationId: null,
+    deviceId: null,
+    registeredAt: null,
+    serviceEnabled: false,
+    policyProfile: "local-baseline",
+    policyVersion: null,
+    policyFetchedAt: null,
+    update: { ...sanitizeUpdatePolicy(DEFAULT_UPDATE_POLICY), eligible: false }
+  };
   const client = loadCloudClient();
   const cached = safeJsonRead(policyFile(), null);
   return {
@@ -164,6 +180,7 @@ export function cloudStatus() {
 }
 
 async function fetchJson(url, init = {}, timeoutMs = 2500) {
+  if (isOpenClientDistribution()) throw new Error("legacy_beta_cloud_disabled");
   const response = await fetch(url, {
     ...init,
     signal: timeoutSignal(timeoutMs),
@@ -235,6 +252,8 @@ export async function registerCloud({
   clientVersion = CLIENT_VERSION,
   device = null
 }) {
+  // No invite-based registration, device writes or Beta credential migration.
+  if (isOpenClientDistribution()) throw new Error("legacy_beta_cloud_disabled");
   const normalized = normalizeBaseUrl(baseUrl);
   if (!normalized || !inviteCode) throw new Error("cloud_url_and_invite_required");
 

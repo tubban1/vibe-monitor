@@ -564,7 +564,7 @@ if (command === "install") {
     ...(isOpenClientDistribution() ? [] : ["  vibe-monitor telemetry intelligence on|off|status"]),
     "  vibe-monitor cloud " + (isOpenClientDistribution() ? "status|config" : "status|config|sync"),
     ...(isOpenClientDistribution() ? [] : ["  vibe-monitor cloud register [--url URL] [--invite CODE]"]),
-    "  vibe-monitor update status|check|stage|activate|rollback [--refresh]",
+    "  vibe-monitor update " + (isOpenClientDistribution() ? "status|check (signed update channel pending)" : "status|check|stage|activate|rollback") + " [--refresh]",
     "  vibe-monitor security status|migrate",
     "  vibe-monitor security show [project] [--section latest|findings|intent|notice|snapshots|all]",
     "  vibe-monitor security export [project] --output <file> [--section ...]",

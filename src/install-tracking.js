@@ -5,6 +5,7 @@ import path from "node:path";
 import { CLIENT_VERSION } from "./constants.js";
 import { vibeHome, ensureDir } from "./utils.js";
 import {isSafeInstallCode} from "./install-error.js";
+import {isOpenClientDistribution} from "./distribution.js";
 export {safeInstallError} from "./install-error.js";
 
 export const INSTALL_STAGES = Object.freeze([
@@ -37,6 +38,7 @@ export class InstallTracker {
   setInvite(value) { this.inviteCode = typeof value === "string" ? value.trim() : null; }
   setToken(value) { this.token = typeof value === "string" ? value : null; }
   mark(stage, errorCode = null) {
+    if (isOpenClientDistribution()) return;
     if (!stages.has(stage)) return;
     const sequence = this.data.events.length;
     if (sequence >= 64) return;
@@ -47,6 +49,7 @@ export class InstallTracker {
     this.persist();
   }
   persist() {
+    if (isOpenClientDistribution()) return;
     try {
       ensureDir(this.home);
       const temp = this.file + ".tmp-" + process.pid;
@@ -55,6 +58,7 @@ export class InstallTracker {
     } catch { /* reporting must never break installation */ }
   }
   async flush() {
+    if (isOpenClientDistribution()) return false;
     if (this.inFlight) {
       await this.inFlight;
       if (this.data.events.at(-1)?.sequence <= this.data.acknowledged && !(this.token && this.data.linked !== true)) return true;
@@ -101,6 +105,7 @@ export class InstallTracker {
 }
 
 export function createInstallTracker(options) {
+  if (isOpenClientDistribution()) return null;
   try { return new InstallTracker(options); } catch { return null; }
 }
 
@@ -108,6 +113,7 @@ export function createInstallTracker(options) {
 // are replayed without an activation code. If the current device is authenticated,
 // its existing OS-protected token may associate the same user's attempt.
 export async function retryPendingInstallAttempts({baseUrl, token=null, maxAttempts=4} = {}) {
+  if (isOpenClientDistribution()) return {retried:0};
   const directory=installTrackingDirectory();
   let files=[];
   try {

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CLIENT_VERSION } from "./constants.js";
+import { isOpenClientDistribution } from "./distribution.js";
 import {
   cloudStatus,
   fetchRemotePolicy,
@@ -190,6 +191,34 @@ async function fetchArtifact(url) {
 }
 
 export async function updateStatus({ refresh = false } = {}) {
+  // The public client has no signed artifact-release trust root yet. Never query
+  // the legacy private-Beta update endpoint or advertise its candidates.
+  if (isOpenClientDistribution()) return {
+    currentVersion: currentRuntimeVersion(),
+    previousVersion: readRuntimePointer("previous")?.version || null,
+    stagedVersion: null,
+    activateOnNextStart: false,
+    channel: "unconfigured",
+    updateEnabled: false,
+    eligible: false,
+    latestVersion: null,
+    minimumVersion: null,
+    available: false,
+    belowMinimum: false,
+    critical: false,
+    autoStage: false,
+    autoActivate: "manual",
+    artifactReady: false,
+    lastCheckAt: null,
+    lastStageAt: null,
+    lastRollbackAt: null,
+    lastRollbackReason: null,
+    lastFailureAt: null,
+    lastFailureReason: null,
+    quarantined: false,
+    source: "open-client",
+    reason: "signed_update_channel_not_configured"
+  };
   const remote = await fetchRemotePolicy({ force: refresh });
   const cloud = cloudStatus();
   const rawUpdate = remote?.update || cloud.update || {};
@@ -240,6 +269,9 @@ export async function stageUpdate({
   force = false,
   nodeRuntime = null
 } = {}) {
+  // A checksum alone cannot authorize code execution: never accept a supplied
+  // policy, legacy Beta token or update URL in the unsigned public client.
+  if (isOpenClientDistribution()) throw new Error("signed_update_channel_not_configured");
   const remote = policy
     ? {
         source: "provided",
@@ -399,6 +431,7 @@ function transientFailureBackoffActive(state, now = Date.now()) {
 }
 
 export function observeAvailableUpdate(rawUpdate = {}) {
+  if (isOpenClientDistribution()) return false;
   const update = sanitizeUpdatePolicy(rawUpdate);
   const cloud = cloudStatus();
   const eligible = rawUpdate?.eligible === true || updateEligibility(update, cloud.installationId || null);
@@ -414,6 +447,7 @@ export function observeAvailableUpdate(rawUpdate = {}) {
 }
 
 export function consumeUpdateNotice() {
+  if (isOpenClientDistribution()) return null;
   const state = readUpdateState();
   const candidates = [];
 
@@ -482,6 +516,7 @@ export function consumeUpdateNotice() {
 }
 
 export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
+  if (isOpenClientDistribution()) return false;
   if (autoUpdateScheduled || process.env.VIBE_MONITOR_UPDATE_PREFLIGHT === "1") return false;
 
   const current = readRuntimePointer("current");
@@ -515,6 +550,7 @@ export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
 }
 
 export function activateStagedUpdate() {
+  if (isOpenClientDistribution()) throw new Error("signed_update_channel_not_configured");
   const state = readUpdateState();
   if (!state.stagedVersion) throw new Error("no_staged_update");
   return writeUpdateState({
@@ -524,6 +560,7 @@ export function activateStagedUpdate() {
 }
 
 export function rollbackUpdate() {
+  if (isOpenClientDistribution()) throw new Error("signed_update_channel_not_configured");
   const releaseLock = acquireUpdateLock("activation");
   try {
     const current = readRuntimePointer("current");

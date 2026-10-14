@@ -1,4 +1,5 @@
 import {emitKeypressEvents} from 'node:readline';
+import {isOpenClientDistribution} from './distribution.js';
 
 // Public-client-compatible helper. Only the verified local installation
 // credential goes into the Authorization header; code is not in argv or URL.
@@ -6,6 +7,7 @@ const CODE=/^[a-f0-9]{64}$/i;
 const OFFICIAL='https://vibe-api.fde.fan';
 
 export async function acceptAccountPairing({client,code,fetchImpl=fetch,timeoutMs=8000}={}){
+ if(isOpenClientDistribution())return {accepted:false,reason:'legacy_beta_pairing_disabled'};
  if(typeof code!=='string'||!CODE.test(code))
    return {accepted:false,reason:'invalid_pairing_code'};
  if(!client?.token||!client?.baseUrl)

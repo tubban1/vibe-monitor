@@ -4,6 +4,7 @@ import path from "node:path";
 import { CLIENT_VERSION, EVIDENCE_VERSION } from "./constants.js";
 import { ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { INTENT_FIELDS } from "./intent.js";
+import { isOpenClientDistribution } from "./distribution.js";
 import { buildArchitectureProfile } from "./data-intelligence.js";
 import { getOrCreateSecret, readSecret, writeSecret } from "./secure-store.js";
 
@@ -66,6 +67,9 @@ function writePrivateJson(file, value) {
 }
 
 function readConfig() {
+  // Ignore any older private-Beta consent on a machine using the open client.
+  // Never reuse its queued upload permission in the Free/Pro/Team client.
+  if (isOpenClientDistribution()) return { schemaVersion: 1, enabled: false };
   return safeJsonRead(configFile(), { schemaVersion: 1, enabled: false });
 }
 
@@ -340,6 +344,11 @@ function scrubQueuedArchitectureProfiles() {
 }
 
 export function setTelemetryEnabled(enabled) {
+  // Avoid rewriting prior Beta preferences and never enable Beta upload from OSS.
+  if (isOpenClientDistribution()) {
+    if (enabled) throw new Error("legacy_beta_telemetry_disabled");
+    return telemetryStatus();
+  }
   const previous = readConfig();
   if (enabled) ensureIdentity();
   const next = {
@@ -360,6 +369,10 @@ export function setTelemetryEnabled(enabled) {
 
 /** The caller must obtain an explicit, versioned collection choice before enabling. */
 export function setDataIntelligenceEnabled(enabled) {
+  if (isOpenClientDistribution()) {
+    if (enabled) throw new Error("legacy_beta_telemetry_disabled");
+    return telemetryStatus();
+  }
   const previous = readConfig();
   if (enabled && !previous.enabled) throw new Error("telemetry_must_be_enabled");
   const next = {
@@ -405,6 +418,20 @@ export function telemetryQueueAge() {
 }
 
 export function telemetryStatus() {
+  if (isOpenClientDistribution()) return {
+    enabled: false,
+    consentVersion: null,
+    dataIntelligenceEnabled: false,
+    dataIntelligenceDecision: null,
+    installationId: null,
+    queuedEvents: 0,
+    queuedSegmentCount: 0,
+    oldestQueuedAt: null,
+    oldestQueuedAgeMs: null,
+    syncDiagnostics: null,
+    cloudTransportConfigured: false,
+    queueFile: telemetryQueueFile()
+  };
   const config = readConfig();
   const identity = safeJsonRead(identityFile(), null);
   const cloud = safeJsonRead(path.join(vibeHome(), "cloud", "client.json"), null);
@@ -426,6 +453,7 @@ export function telemetryStatus() {
 }
 
 export function inspectTelemetryQueue({ limit = 50 } = {}) {
+  if (isOpenClientDistribution()) return [];
   const file = telemetryQueueFile();
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, "utf8")
@@ -696,6 +724,7 @@ export function enqueueCallCompletedTelemetry({
 }
 
 export function readTelemetryBatch({ limit = 100 } = {}) {
+  if (isOpenClientDistribution()) return [];
   const file = telemetryQueueFiles()[0];
   if (!file) return [];
   return fs.readFileSync(file, "utf8")
@@ -709,6 +738,7 @@ export function readTelemetryBatch({ limit = 100 } = {}) {
 }
 
 export function acknowledgeTelemetryEvents(eventIds = []) {
+  if (isOpenClientDistribution()) return 0;
   const ids = new Set(eventIds.filter(Boolean));
   if (!ids.size) return 0;
   return withQueueMutationLock(() => {
