@@ -7,7 +7,7 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM} from "../src/community-cloud-policy.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
-test("Community source has Apache-2.0 license, reproducible deps, and no publish rights",{
+test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{
  skip:!staged?"only runs after source-only OSS staging":false
 },()=>{
  const pkg=JSON.parse(fs.readFileSync(path.join(root,"package.json"),"utf8"));
@@ -22,11 +22,17 @@ test("Community source has Apache-2.0 license, reproducible deps, and no publish
  assert.equal(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,null,
   "stage must remain unreleasable until real signed QA policy has been verified");
 });
-test("Community cloud strategy is never stored on disk or sent as telemetry",{
+test("Unified signed cloud strategy stays in memory without telemetry",{
  skip:!staged?"only runs after source-only OSS staging":false
 },()=>{
  const policy=fs.readFileSync(path.join(root,"src/community-cloud-policy.js"),"utf8");
  const dist=fs.readFileSync(path.join(root,"src/distribution.js"),"utf8");
+ const sanitizer=fs.readFileSync(path.join(root,"src/policy-sanitizer.js"),"utf8");
+ assert.match(policy,/from "\.\/policy-sanitizer\.js"/);
+ assert.doesNotMatch(policy,/from "\.\/cloud\.js"/,
+  "Open client must not import legacy Beta Cloud merely to normalize policy");
+ assert.doesNotMatch(sanitizer,/\b(?:node:fs|readFileSync|writeFileSync|vibeHome|fetch)\b/,
+  "Pure policy normalization must never read or transmit data");
  assert.match(dist,/DISTRIBUTION_MODE = "open-client"/);
  assert.doesNotMatch(policy,/node:fs|writeFileSync|readFileSync|signed-v1\.json|vibeHome/);
  assert.match(policy,/createCommunityPolicyClient/);

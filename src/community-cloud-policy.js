@@ -5,7 +5,7 @@
 // No disk storage, no credential,
 // policy JSON or signed payload persistence. Cache lives only in process memory.
 import {verify,createPublicKey} from "node:crypto";
-import {sanitizeRemotePolicy} from "./cloud.js";
+import {sanitizeRemotePolicy} from "./policy-sanitizer.js";
 import {POLICY_V2_FAMILIES} from "./decision-policy.js";
 export const COMMUNITY_POLICY_URL="https://vibe-api.fde.fan/community/policy";
 export const COMMUNITY_POLICY_KEY_ID="community-ed25519-v1";
