@@ -31,9 +31,23 @@ test("single client dependency lock has reviewed SPDX license categories",{
  const lock=JSON.parse(fs.readFileSync(path.join(root,"package-lock.json"),"utf8"));
  const packages=Object.entries(lock.packages).filter(([n])=>n.startsWith("node_modules/"));
  assert.equal(packages.length,130,"dependency count changed: refresh attribution review");
- for(const [name,pkg] of packages)
+ for(const [name,pkg] of packages){
   assert.ok(["MIT","ISC","BSD-2-Clause","BSD-3-Clause"].includes(pkg.license),
    "Unreviewed dependency license "+name+" : "+String(pkg.license));
+  assert.match(pkg.integrity,/^sha(?:256|384|512)-[A-Za-z0-9+/=]+$/,
+   "Missing package content-integrity: "+name);
+ }
+ const manifest=JSON.parse(fs.readFileSync(path.join(root,"package.json"),"utf8"));
+ const direct=Object.keys({...manifest.dependencies,...manifest.devDependencies});
+ assert.equal(direct.length,8,"Direct dependency review set changed");
+ for(const name of direct){
+  const folder=path.join(root,"node_modules",name);
+  const metadata=JSON.parse(fs.readFileSync(path.join(folder,"package.json"),"utf8"));
+  assert.equal(metadata.version,lock.packages["node_modules/"+name]?.version,
+   "Installed dependency not lockfile-pinned: "+name);
+  assert.ok(fs.readdirSync(folder).some(f=>/^LICEN[CS]E(?:[._-].*)?$/i.test(f)),
+   "Direct dependency license text unavailable: "+name);
+ }
  const notice=fs.readFileSync(path.join(root,"NOTICE"),"utf8");
  assert.match(notice,/Transitive npm dependencies/i);
 });

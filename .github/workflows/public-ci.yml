@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -45,6 +46,15 @@ jobs:
           else
             echo "has_client=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Prepare Node 22 for release-history audit
+        if: github.event_name == 'pull_request' && steps.detect-client.outputs.has_client == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Reject historical secrets, forbidden paths and unsafe Git revisions
+        if: github.event_name == 'pull_request' && steps.detect-client.outputs.has_client == 'true'
+        run: node scripts/verify-oss-source-history.mjs --baseline origin/main
 
   client-platforms:
     name: OSS client / ${{ matrix.os }} / Node 22
