@@ -58,6 +58,11 @@ test("future public CI includes official npm production vulnerability audit",()=
  assert.match(yml,/npm audit --omit=dev --registry=https:\/\/registry\.npmjs\.org --audit-level=moderate/);
  assert.match(yml,/if: matrix\.os == 'ubuntu-latest'/);
 });
+test("public package allowlist executes npm through platform shell, not child_process",()=>{
+ const yml=fs.readFileSync(new URL("../.github/workflows/public-ci.yml",import.meta.url),"utf8");
+ assert.match(yml,/npm pack --dry-run --json \| node --input-type=module -e/);
+ assert.doesNotMatch(yml,/execFileSync\('npm'/);
+});
 test("history review requires correct ancestor baseline",t=>{
  const {root}=temporaryRepo(t);
  assert.throws(()=>auditIntroducedHistory({repoPath:root,baseline:"refs/heads/not-a-real-branch"}),

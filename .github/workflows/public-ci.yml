@@ -97,7 +97,7 @@ jobs:
       - name: Verify exact tarball allowlist, do not publish
         shell: bash
         run: |
-          node --input-type=module -e "import {execFileSync} from 'node:child_process'; const r=JSON.parse(execFileSync('npm',['pack','--dry-run','--json'],{encoding:'utf8'})); const actual=r[0].files.map(f=>f.path).sort(); const allowed=['LICENSE','NOTICE','README.md','dist/vibe-monitor-scan-worker.mjs','dist/vibe-monitor.mjs','package.json'].sort(); if(JSON.stringify(actual)!==JSON.stringify(allowed)) { console.error(actual); process.exit(1); }"
+          npm pack --dry-run --json | node --input-type=module -e "let s=''; for await (const chunk of process.stdin) s+=chunk; const r=JSON.parse(s); const actual=r[0].files.map(f=>f.path).sort(); const allowed=['LICENSE','NOTICE','README.md','dist/vibe-monitor-scan-worker.mjs','dist/vibe-monitor.mjs','package.json'].sort(); if(JSON.stringify(actual)!==JSON.stringify(allowed)) { console.error(actual); process.exit(1); }"
       - name: CLI help smoke
         run: node ./dist/vibe-monitor.mjs --help
 
