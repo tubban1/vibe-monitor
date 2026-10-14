@@ -9,8 +9,10 @@ import {sanitizeRemotePolicy} from "./policy-sanitizer.js";
 import {POLICY_V2_FAMILIES} from "./decision-policy.js";
 export const COMMUNITY_POLICY_URL="https://vibe-api.fde.fan/community/policy";
 export const COMMUNITY_POLICY_KEY_ID="community-ed25519-v1";
-// Release blocker until an audited Cloud public key is pinned at build time.
+export const COMMUNITY_POLICY_NEXT_KEY_ID="community-ed25519-v2";
+// Both trust anchors stay OFF until audited build-time provisioning.
 export const COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM=null;
+export const COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
 const MAX_AGE=3600; // signed policy can live at most one hour, RAM only
 const REFRESH=900;  // refresh from Cloud after fifteen minutes
 const MAX_BYTES=16384;
@@ -49,10 +51,14 @@ export const COMMUNITY_SAFE_POLICY=Object.freeze({
 const obj=o=>o!==null&&typeof o==="object"&&!Array.isArray(o)&&Object.getPrototypeOf(o)===Object.prototype;
 const hasOnly=(o,keys)=>obj(o)&&Object.keys(o).every(k=>keys.includes(k));
 const sec=now=>Math.floor(now()/1000);
-export function verifyCommunityPolicyEnvelope(e,{publicKeyPem,now=Date.now}={}){
+export function verifyCommunityPolicyEnvelope(e,{publicKeyPem,publicKeysById=null,now=Date.now}={}){
  const n=sec(now),p=e?.payload;
+ const supported=[COMMUNITY_POLICY_KEY_ID,COMMUNITY_POLICY_NEXT_KEY_ID];
+ // An envelope must never supply or select its own trust root.
+ const keys=publicKeysById===null?{[COMMUNITY_POLICY_KEY_ID]:publicKeyPem}:publicKeysById;
+ const trustedPem=obj(keys)&&supported.includes(e?.keyId)?keys[e.keyId]:null;
  if(!Number.isSafeInteger(n)||!hasOnly(e,["payload","keyId","signature"])||
-  e.keyId!==COMMUNITY_POLICY_KEY_ID||typeof e.signature!=="string"||
+  !supported.includes(e.keyId)||typeof e.signature!=="string"||
   !/^[A-Za-z0-9_-]{86}$/.test(e.signature)||
   !hasOnly(p,["schemaVersion","audience","revision","issuedAt","expiresAt","config"])||
   p.schemaVersion!==1||p.audience!=="vibe-monitor-community"||
@@ -62,9 +68,9 @@ export function verifyCommunityPolicyEnvelope(e,{publicKeyPem,now=Date.now}={}){
   p.expiresAt<=n||p.expiresAt-p.issuedAt>MAX_AGE||
   !hasOnly(p.config,["checkpointMinIntervalSec","fullScanMinIntervalSec",
    "maxNoticesPerSession","unchangedNoticeReminderHours","decisionPolicy","enabledMonitors"])||
-  typeof publicKeyPem!=="string")return null;
+  typeof trustedPem!=="string")return null;
  try{
-  const key=createPublicKey(publicKeyPem);
+  const key=createPublicKey(trustedPem);
   if(key.asymmetricKeyType!=="ed25519"||
    !verify(null,Buffer.from(JSON.stringify(p)),key,Buffer.from(e.signature,"base64url")))return null;
   const raw=p.config,bounded=sanitizeRemotePolicy(raw);
@@ -89,22 +95,30 @@ export function createCommunityPolicyClient(){
  let lastObservedSec=null;
  return async function fetchCommunityCloudPolicyForProcess({
   fetchImpl=globalThis.fetch,publicKeyPem=COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,
-  now=Date.now,force=false
+  publicKeysById=null,now=Date.now,force=false
  }={}){
   const current=sec(now);
+  const keys=publicKeysById===null?{
+   [COMMUNITY_POLICY_KEY_ID]:publicKeyPem,
+   [COMMUNITY_POLICY_NEXT_KEY_ID]:COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM
+  }:publicKeysById;
+  const trustSet=obj(keys)?JSON.stringify([
+   keys[COMMUNITY_POLICY_KEY_ID]??null,keys[COMMUNITY_POLICY_NEXT_KEY_ID]??null
+  ]):"untrusted";
   if(!Number.isSafeInteger(current)||current<=0)return COMMUNITY_SAFE_POLICY;
   // A backwards local clock jump must not revive an old signed policy.
   if(lastObservedSec!==null&&current<lastObservedSec-60)cached=null;
   lastObservedSec=current;
   let effective=null;
-  if(cached&&cached.publicKeyPem===publicKeyPem&&current>=cached.acceptedAt-60&&
+  if(cached&&cached.trustSet===trustSet&&current>=cached.acceptedAt-60&&
     current>=cached.fetchedAt-60&&current-cached.acceptedAt<=MAX_AGE){
-   const verified=verifyCommunityPolicyEnvelope(cached.envelope,{publicKeyPem,now});
+   const verified=verifyCommunityPolicyEnvelope(cached.envelope,{publicKeysById:keys,now});
    if(verified)effective={...verified,source:"memory-signed-baseline"};
   }
   if(!effective)cached=null;
   if(!force&&effective&&current-cached.fetchedAt<REFRESH)return effective;
-  if(typeof publicKeyPem!=="string"||typeof fetchImpl!=="function")
+  if(!obj(keys)||![COMMUNITY_POLICY_KEY_ID,COMMUNITY_POLICY_NEXT_KEY_ID].some(id=>typeof keys[id]==="string")||
+   typeof fetchImpl!=="function")
    return effective||COMMUNITY_SAFE_POLICY;
   try{
    const response=await fetchImpl(COMMUNITY_POLICY_URL,{
@@ -115,10 +129,10 @@ export function createCommunityPolicyClient(){
     throw Error("cloud_unavailable");
    const raw=await readBoundedPolicyResponse(response);
    const envelope=JSON.parse(raw);
-   const validated=verifyCommunityPolicyEnvelope(envelope,{publicKeyPem,now});
+   const validated=verifyCommunityPolicyEnvelope(envelope,{publicKeysById:keys,now});
    if(!validated||(effective&&validated.revision<effective.revision))
     throw Error("invalid_signed_policy_or_rollback");
-   cached={envelope,publicKeyPem,acceptedAt:current,fetchedAt:current};
+   cached={envelope,trustSet,acceptedAt:current,fetchedAt:current};
    return validated;
   }catch{return effective||COMMUNITY_SAFE_POLICY;}
  };

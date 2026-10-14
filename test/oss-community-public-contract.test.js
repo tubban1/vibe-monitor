@@ -4,7 +4,7 @@ import fs from "node:fs";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
-import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
+import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
@@ -22,6 +22,20 @@ test("Unified open client has Apache-2.0 license, reproducible deps, and no publ
  assert.match(license,/Apache License\s+Version 2\.0, January 2004/);
  assert.equal(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,null,
   "stage must remain unreleasable until real signed QA policy has been verified");
+ assert.equal(COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,null,
+  "new signing verification root must not ship before Cloud security sign-off");
+});
+test("single client dependency lock has reviewed SPDX license categories",{
+ skip:!staged?"OSS-only dependency contract":false
+},()=>{
+ const lock=JSON.parse(fs.readFileSync(path.join(root,"package-lock.json"),"utf8"));
+ const packages=Object.entries(lock.packages).filter(([n])=>n.startsWith("node_modules/"));
+ assert.equal(packages.length,130,"dependency count changed: refresh attribution review");
+ for(const [name,pkg] of packages)
+  assert.ok(["MIT","ISC","BSD-2-Clause","BSD-3-Clause"].includes(pkg.license),
+   "Unreviewed dependency license "+name+" : "+String(pkg.license));
+ const notice=fs.readFileSync(path.join(root,"NOTICE"),"utf8");
+ assert.match(notice,/Transitive npm dependencies/i);
 });
 test("Unified signed cloud strategy stays in memory without telemetry",{
  skip:!staged?"only runs after source-only OSS staging":false
