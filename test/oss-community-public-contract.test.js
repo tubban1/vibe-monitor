@@ -4,7 +4,7 @@ import fs from "node:fs";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
-import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM} from "../src/community-cloud-policy.js";
+import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
@@ -40,6 +40,16 @@ test("Unified signed cloud strategy stays in memory without telemetry",{
  assert.match(dist,/fetchCommunityCloudPolicy/);
 });
 
+test("signed strategy response cannot read beyond stream limit",async()=>{
+ const client=createCommunityPolicyClient();
+ let fullReads=0;
+ const out=await client({publicKeyPem:"synthetic-test-public-key",now:()=>Date.UTC(2026,9,14),
+  fetchImpl:async()=>({ok:true,headers:{get:()=>null},
+   body:{async *[Symbol.asyncIterator](){yield {byteLength:16385};}},
+   text:async()=>{fullReads++;throw Error("no unbounded text");}})});
+ assert.equal(out.source,"local-baseline");
+ assert.equal(fullReads,0);
+});
 test("Node source is pinned to the official artifact URL",()=>{
  const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};
  assert.equal(nodeDownloadSources(spec).length,2);

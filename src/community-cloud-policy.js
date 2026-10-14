@@ -14,6 +14,30 @@ export const COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM=null;
 const MAX_AGE=3600; // signed policy can live at most one hour, RAM only
 const REFRESH=900;  // refresh from Cloud after fifteen minutes
 const MAX_BYTES=16384;
+// Reject oversized signed policy documents during streaming, before allocating
+// an unbounded response.text() body.
+async function readBoundedPolicyResponse(response){
+ const claimed=Number(response.headers?.get?.("content-length")||0);
+ if(Number.isFinite(claimed)&&claimed>MAX_BYTES)throw Error("policy_oversized");
+ if(response.body&&typeof response.body[Symbol.asyncIterator]==="function"){
+  const parts=[];
+  let count=0;
+  for await(const chunk of response.body){
+   const length=Number(chunk?.byteLength);
+   if(Number.isFinite(length)&&length>=0&&count+length>MAX_BYTES)
+    throw Error("policy_oversized");
+   const bytes=Buffer.from(chunk);
+   count+=bytes.length;
+   if(count>MAX_BYTES)throw Error("policy_oversized");
+   parts.push(bytes);
+  }
+  return Buffer.concat(parts,count).toString("utf8");
+ }
+ // Narrow fallback for deterministic test doubles with no native stream.
+ const raw=await response.text();
+ if(Buffer.byteLength(raw)>MAX_BYTES)throw Error("policy_oversized");
+ return raw;
+}
 const TRUE_FAMILIES=Object.freeze(Object.fromEntries(POLICY_V2_FAMILIES.map(f=>[f,true])));
 export const COMMUNITY_SAFE_POLICY=Object.freeze({
  enabled:true,source:"local-baseline",reason:null,profile:"baseline",
@@ -89,8 +113,7 @@ export function createCommunityPolicyClient(){
    });
    if(!response?.ok||Number(response.headers?.get?.("content-length")||0)>MAX_BYTES)
     throw Error("cloud_unavailable");
-   const raw=await response.text();
-   if(Buffer.byteLength(raw)>MAX_BYTES)throw Error("policy_oversized");
+   const raw=await readBoundedPolicyResponse(response);
    const envelope=JSON.parse(raw);
    const validated=verifyCommunityPolicyEnvelope(envelope,{publicKeyPem,now});
    if(!validated||(effective&&validated.revision<effective.revision))
