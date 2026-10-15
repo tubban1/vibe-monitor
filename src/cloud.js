@@ -7,7 +7,8 @@ import {
   acknowledgeTelemetryEvents,
   readTelemetryBatch,
   enqueueLifecycleTelemetry,
-  telemetryStatus
+  telemetryStatus,
+  freeTelemetryWireBatch
 } from "./telemetry.js";
 import { readSecret, writeSecret } from "./secure-store.js";
 import { CLIENT_VERSION } from "./constants.js";
@@ -571,6 +572,37 @@ export async function reportLifecycleEvent(event, details = {}) {
   } catch {
     return { queued: true, delivered: false, reason: "network_or_service_unavailable" };
   }
+}
+
+// Account-free transport is an independently approved release switch.
+// Keep off until endpoint, region, retention and privacy QA are authorized.
+export const FREE_TELEMETRY_UPLOAD_ENABLED = false;
+const FREE_TELEMETRY_URL = "https://vibe-api.fde.fan/free/telemetry";
+export async function syncFreeTelemetry({fetchImpl=globalThis.fetch}={}) {
+ if(!isOpenClientDistribution())return {uploaded:0,reason:"private_beta_mode"};
+ if(!telemetryStatus().enabled)return {uploaded:0,reason:"telemetry_off"};
+ if(!FREE_TELEMETRY_UPLOAD_ENABLED)return {uploaded:0,reason:"free_intake_not_released"};
+ const batch=freeTelemetryWireBatch();
+ if(!batch.length)return {uploaded:0,reason:"empty"};
+ const payload=JSON.stringify({events:batch});
+ if(Buffer.byteLength(payload)>24576)return {uploaded:0,reason:"batch_too_large"};
+ try {
+  const response=await fetchImpl(FREE_TELEMETRY_URL,{
+   method:"POST",headers:{"content-type":"application/json","accept":"application/json"},
+   body:payload,redirect:"error",signal:AbortSignal.timeout(1500)
+  });
+  if(!response?.ok)return {uploaded:0,reason:"cloud_unavailable"};
+  const size=Number(response.headers?.get?.("content-length")||0);
+  if(size>2048)return {uploaded:0,reason:"invalid_ack"};
+  const ack=await response.text();
+  if(Buffer.byteLength(ack)>2048)return {uploaded:0,reason:"invalid_ack"};
+  const data=JSON.parse(ack);
+  if(!Number.isSafeInteger(data.accepted)||!Number.isSafeInteger(data.duplicates)||
+   data.accepted<0||data.duplicates<0||
+   data.accepted+data.duplicates!==batch.length)return {uploaded:0,reason:"invalid_ack"};
+  acknowledgeTelemetryEvents(batch.map(e=>e.eventId));
+  return {uploaded:data.accepted,duplicates:data.duplicates};
+ }catch{return {uploaded:0,reason:"network_or_invalid_response"};}
 }
 
 export async function syncTelemetry({ limit = 100, respectBackoff = false } = {}) {

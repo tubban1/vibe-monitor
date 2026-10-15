@@ -10,7 +10,7 @@ import { analyzeProject, buildVibeCoderBrief } from "./engine.js";
 import { buildDisabledPolicyPayload, runMcpServer } from "./mcp.js";
 import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setup.js";
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
-import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, telemetryStatus } from "./telemetry.js";
+import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, reportLifecycleEvent } from "./cloud.js";
 import { installProduct, installOpenClientProduct, installStatus } from "./install.js";
 import { isOpenClientDistribution, resolveDistributionPolicy } from "./distribution.js";
@@ -176,6 +176,8 @@ function printHuman(result) {
 
 if (command === "install") {
   if (isOpenClientDistribution()) {
+    if (args.includes("--no-telemetry")) setTelemetryEnabled(false);
+    console.error("Free V4 improvement telemetry defaults on at installation. No source, prompts, paths or raw logs. Inspect: vibe-monitor telemetry inspect; opt out: vibe-monitor telemetry off. Upload remains disabled in this review build.");
     const lifecycle=createLocalInstallLifecycle();
     lifecycle.mark("started");
     try {
@@ -333,11 +335,7 @@ if (command === "install") {
   if (action === "intelligence") {
     const choice = args[2] || "status";
     if (choice === "on") {
-      if (isOpenClientDistribution()) {
-        console.error("Legacy Beta intelligence uploads are not supported in the open client.");
-        process.exit(2);
-      }
-      console.error(INTELLIGENCE_NOTICE);
+      if (!isOpenClientDistribution()) console.error(INTELLIGENCE_NOTICE);
       print(setDataIntelligenceEnabled(true));
     } else if (choice === "off") {
       print(setDataIntelligenceEnabled(false));
@@ -348,10 +346,6 @@ if (command === "install") {
       process.exit(2);
     }
   } else if (action === "on") {
-    if (isOpenClientDistribution()) {
-      console.error("Legacy Beta telemetry uploads are not supported in the open client.");
-      process.exit(2);
-    }
     print(setTelemetryEnabled(true));
   } else if (action === "off") {
     if (isOpenClientDistribution()) print(setTelemetryEnabled(false));
@@ -483,7 +477,7 @@ if (command === "install") {
     console.error("Vibe Monitor Private Beta requires telemetry. Setup cancelled.");
     process.exit(2);
   }
-  const telemetryDefaultOn = !openClient;
+  const telemetryDefaultOn = true;
   const local = args.includes("--local");
   const installedRuntime = local ? null : installStatus();
   // Reconfigure installed coding agents against the stable, rollback-capable
@@ -508,8 +502,11 @@ if (command === "install") {
     });
   } else {
     const migration = migrateProjectStateTree();
-    const telemetry = setTelemetryEnabled(telemetryDefaultOn);
-    const intelligence = openClient ? { dataIntelligenceEnabled: false } : await configureIntelligenceConsent();
+    if (openClient) console.error("Free V4 telemetry defaults on; inspect/off controls are available. Anonymous Cloud intake is not released.");
+    const telemetry = openClient
+      ? (args.includes("--no-telemetry") ? setTelemetryEnabled(false) : initializeFreeTelemetry())
+      : setTelemetryEnabled(telemetryDefaultOn);
+    const intelligence = openClient ? {} : await configureIntelligenceConsent();
     print({
       ...setup,
       security: {
@@ -548,7 +545,7 @@ if (command === "install") {
     "Vibe Monitor " + CLIENT_VERSION + (isOpenClientDistribution() ? "" : " private beta"),
     "",
     "Usage:",
-    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
+    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--no-telemetry] [--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
     "  vibe-monitor session-start [path] [--json]",
     "  vibe-monitor checkpoint [path] [--json]",
     "  vibe-monitor status [path] [--json]",
@@ -560,7 +557,7 @@ if (command === "install") {
     "  vibe-monitor license",
     "  vibe-monitor doctor",
     "  vibe-monitor activity [--limit N] [--follow] [--json]",
-    "  vibe-monitor telemetry " + (isOpenClientDistribution() ? "status|inspect|off" : "status|inspect|on|off") + " [--limit N]",
+    "  vibe-monitor telemetry status|inspect|on|off [--limit N]",
     ...(isOpenClientDistribution() ? [] : ["  vibe-monitor telemetry intelligence on|off|status"]),
     "  vibe-monitor cloud " + (isOpenClientDistribution() ? "status|config" : "status|config|sync"),
     ...(isOpenClientDistribution() ? [] : ["  vibe-monitor cloud register [--url URL] [--invite CODE]"]),
@@ -576,7 +573,7 @@ if (command === "install") {
     "  - session-scoped, no background daemon",
     "  - source read-only",
     "  - local history by default",
-    "  - " + (isOpenClientDistribution() ? "Telemetry OFF by default; Beta upload APIs unavailable" : "private-beta telemetry is required and inspectable"),
+    "  - " + (isOpenClientDistribution() ? "Free V4 telemetry defaults on after install, opt-out available; Beta upload unavailable" : "private-beta telemetry is required and inspectable"),
     "  - " + (isOpenClientDistribution() ? "signed Cloud policy stays in process memory only" : "private-beta cloud transport uses a per-installation token")
   ].join("\n"));
 }

@@ -16,7 +16,8 @@ import {
   fetchRemotePolicy,
   submitArchitectureReviewResponse,
   syncCloudDevice,
-  syncTelemetry
+  syncTelemetry,
+  syncFreeTelemetry
 } from "./cloud.js";
 import {
   ARP_PROTOCOL_VERSION,
@@ -336,7 +337,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   let cloudSyncRequested = false;
 
   function syncCloudBestEffort() {
-    if(isOpenClientDistribution())return Promise.resolve();
+    if(isOpenClientDistribution())return syncFreeTelemetry();
     cloudSyncRequested = true;
     if (cloudSyncPromise) return cloudSyncPromise;
 
@@ -376,7 +377,6 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       phaseTimings.toolHandlerMs = toolMs;
       phaseTimings.postAnalysisMs = Math.max(0, toolMs - (phaseTimings.policyMs || 0) - (phaseTimings.analysisMs || 0));
     }
-    if(isOpenClientDistribution())return;
     enqueueCallCompletedTelemetry({
       agent,
       projectId: result?.project?.id || null,
@@ -453,7 +453,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       });
       noticesShownThisSession += payload.attentionFindings.length;
       markSurfacedNotices(result.project.id, payload.attentionFindings);
-      if(!isOpenClientDistribution())enqueueNoticeTelemetry({
+      enqueueNoticeTelemetry({
         agent,
         projectId: result.project.id,
         repoId: result.project.repoId || null,
@@ -526,7 +526,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     });
     noticesShownThisSession += payload.attentionFindings.length;
     markSurfacedNotices(result.project.id, payload.attentionFindings);
-    if(!isOpenClientDistribution())enqueueNoticeTelemetry({
+    enqueueNoticeTelemetry({
       agent,
       projectId: result.project.id,
       repoId: result.project.repoId || null,

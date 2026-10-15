@@ -7,7 +7,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { checkCloudHealth, registerCloud, cloudStatus, syncCloudDevice, loadCloudClient } from "./cloud.js";
 import { installSetup } from "./setup.js";
 import { migrateProjectStateTree, securityStatus, verifyCredentialStore } from "./secure-store.js";
-import { setTelemetryEnabled } from "./telemetry.js";
+import { setTelemetryEnabled, initializeFreeTelemetry } from "./telemetry.js";
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
 import { resolveInstallEndpoint } from "./install-network.js";
@@ -641,13 +641,13 @@ export async function installOpenClientProduct({agents,local=true,cliPath,onStag
   onStage("runtime_installed");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});
   onStage("mcp_configured");
-  const telemetry=setTelemetryEnabled(false);
+  const telemetry=initializeFreeTelemetry();
   return {
     installed:true,version:CLIENT_VERSION,distribution:"open-client",
     runtime,activation:{registered:false,reusedExisting:false,
       serviceEnabled:true},
     setup,security:securityStatus(),
-    telemetry:{...telemetry,requiredDuringPrivateBeta:false,defaultEnabled:false},
+    telemetry:{...telemetry,requiredDuringPrivateBeta:false,defaultEnabled:true},
     next:["Restart your coding agent if necessary.",
       "Open a project and ask for a local architecture review.",
       "Local architecture scanning needs no account. Paid Cloud access requires server-verified grants."]

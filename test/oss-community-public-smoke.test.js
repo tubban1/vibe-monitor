@@ -35,7 +35,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(help.status,0,help.stderr?.slice(0,600));
  assert.match(help.stdout,/vibe-monitor cloud status\|config/);
  assert.match(help.stdout,/signed Cloud policy stays in process memory only/);
- assert.doesNotMatch(help.stdout,/vibe-monitor cloud register|vibe-monitor cloud status\|config\|sync|vibe-monitor telemetry intelligence|vibe-monitor telemetry status\|inspect\|on|vibe-monitor update status\|check\|stage/,
+ assert.doesNotMatch(help.stdout,/vibe-monitor cloud register|vibe-monitor cloud status\|config\|sync|vibe-monitor telemetry intelligence|vibe-monitor update status\|check\|stage/,
   "The one open client must not advertise unavailable legacy Beta upload or unsigned updater commands");
  const scan=run("scan",project,"--json");
  assert.equal(scan.status,0,scan.stderr?.slice(0,600));
@@ -54,7 +54,9 @@ test("unified open client performs offline scan, install and uninstall with no u
  const result=JSON.parse(install.stdout);
  assert.equal(result.distribution,"open-client");
  assert.equal(result.activation.registered,false);
- assert.equal(result.telemetry.enabled,false);
+ assert.equal(result.telemetry.enabled,true);
+ assert.equal(result.telemetry.consentVersion,"free-v1");
+ assert.equal(result.telemetry.cloudTransportConfigured,false);
  assert.deepEqual(result.lifecycle,{storage:"local-only",uploaded:false,
   stages:["started","runtime_installed","mcp_configured","completed"],errorCode:null});
  const lifecycleDir=path.join(app,"install-lifecycle");
@@ -79,9 +81,11 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(configured.telemetry.enabled,false);
  assert.equal(configured.telemetry.requiredDuringPrivateBeta,false);
  const optIn=run("telemetry","on");
- assert.equal(optIn.status,2,"Unified client must refuse legacy telemetry upload activation");
+ assert.equal(optIn.status,0,"Free telemetry activation is separate from legacy Beta upload");
+ assert.equal(JSON.parse(optIn.stdout).enabled,true);
  const intelligence=run("telemetry","intelligence","on");
- assert.equal(intelligence.status,2,"Unified client must refuse legacy intelligence upload activation");
+ assert.equal(intelligence.status,0,"Independent Free architecture profiling can be enabled locally");
+ assert.equal(run("telemetry","off","--json").status,0);
  assert.equal(run("cloud","sync","--json").status,2,"Beta Cloud telemetry sync must be blocked");
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
  const qaPairing=spawnSync(process.execPath,["--import",blockUrl,cli,"account","link","--qa"],

@@ -7,6 +7,9 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
+import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,telemetryStatus,setTelemetryEnabled} from "../src/telemetry.js";
+import os from "node:os";
+import crypto from "node:crypto";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
 test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{
@@ -153,4 +156,45 @@ test("Node archive streaming bytes are bounded even without Content-Length",asyn
  globalThis.fetch=async()=>{calls++;return {ok:true,headers:{get:()=>null},body:{async *[Symbol.asyncIterator](){yield {byteLength:161*1024*1024};}}};};
  try{await assert.rejects(fetchVerifiedNode(spec),/runtime_download_failed/);assert.equal(calls,2);}
  finally{globalThis.fetch=original;}
+});
+
+test("Free V4 wire never forwards raw project, prompt, token or nested intelligence",()=>{
+ const event={schemaVersion:4,eventId:crypto.randomUUID(),
+  installationId:crypto.randomUUID(),event:"scan.observed",at:new Date().toISOString(),
+  projectId:"b".repeat(32),agent:"codex",stage:"S4",
+  payload:{sourceFilesBucket:"21-50",totalLocBucket:"501-1000",
+   prompt:"raw user message",token:"placeholder",architectureProfile:{raw:"private"},
+   source:"const secret=1",path:"/Users/private/source"}};
+ const rows=freeTelemetryWireBatch([event]);
+ assert.equal(rows.length,1);
+ assert.deepEqual(rows[0].payload,{sourceFilesBucket:"21-50",totalLocBucket:"501-1000"});
+ assert.doesNotMatch(JSON.stringify(rows),/raw user message|placeholder|const secret|private\/source|architectureProfile/);
+});
+test("Free on-by-default queue is separate from old Beta, bounded and opt-out purges",t=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-free-telemetry-v4-"));
+ const vars=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"];
+ const prior=vars.map(k=>process.env[k]);
+ process.env.VIBE_MONITOR_HOME=tmp;
+ process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(tmp,"secrets");
+ t.after(()=>{
+  vars.forEach((k,i)=>{if(prior[i]===undefined)delete process.env[k];else process.env[k]=prior[i];});
+  fs.rmSync(tmp,{force:true,recursive:true});
+ });
+ const betaDir=path.join(tmp,"telemetry");
+ fs.mkdirSync(betaDir,{recursive:true});
+ const old=JSON.stringify({enabled:true,consentVersion:"private-beta-v4"});
+ fs.writeFileSync(path.join(betaDir,"config.json"),old);
+ assert.equal(initializeFreeTelemetry().enabled,true);
+ assert.equal(telemetryStatus().consentVersion,"free-v1");
+ for(let i=0;i<1500;i++)
+  enqueueActivityTelemetry({event:"checkpoint",projectId:"test-project",agent:"codex",
+   sessionId:crypto.randomUUID(),durationMs:i});
+ const freePath=path.join(tmp,"free-telemetry","queue.jsonl");
+ assert.ok(fs.existsSync(freePath));
+ assert.ok(fs.statSync(freePath).size<=256*1024);
+ assert.equal(fs.readFileSync(path.join(betaDir,"config.json"),"utf8"),old);
+ assert.equal(setTelemetryEnabled(false).enabled,false);
+ assert.equal(fs.existsSync(freePath),false);
+ assert.equal(initializeFreeTelemetry().enabled,false,"explicit Free opt-out survives restart");
+ assert.equal(fs.readFileSync(path.join(betaDir,"config.json"),"utf8"),old);
 });

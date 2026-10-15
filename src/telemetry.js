@@ -43,7 +43,7 @@ function withQueueMutationLock(action) {
 const MAX_FINDINGS_PER_OBSERVATION = 50;
 
 function telemetryDir() {
-  return path.join(vibeHome(), "telemetry");
+  return path.join(vibeHome(), isOpenClientDistribution() ? "free-telemetry" : "telemetry");
 }
 
 function configFile() {
@@ -69,7 +69,7 @@ function writePrivateJson(file, value) {
 function readConfig() {
   // Ignore any older private-Beta consent on a machine using the open client.
   // Never reuse its queued upload permission in the Free/Pro/Team client.
-  if (isOpenClientDistribution()) return { schemaVersion: 1, enabled: false };
+  if (isOpenClientDistribution()) return safeJsonRead(configFile(), { schemaVersion: 1, enabled: false, consentVersion: null });
   return safeJsonRead(configFile(), { schemaVersion: 1, enabled: false });
 }
 
@@ -85,7 +85,7 @@ function ensureIdentity() {
 
   if (identity?.secret) {
     try {
-      writeSecret("telemetry-hmac-secret", identity.secret);
+      writeSecret(isOpenClientDistribution() ? "free-telemetry-hmac-secret" : "telemetry-hmac-secret", identity.secret);
       const scrubbed = { ...identity };
       delete scrubbed.secret;
       writePrivateJson(identityFile(), scrubbed);
@@ -102,7 +102,7 @@ function ensureIdentity() {
     writePrivateJson(identityFile(), identity);
   }
 
-  const secret = getOrCreateSecret("telemetry-hmac-secret", 32);
+  const secret = getOrCreateSecret(isOpenClientDistribution() ? "free-telemetry-hmac-secret" : "telemetry-hmac-secret", 32);
   const resolved = { ...identity, secret };
   identityCache = { file, identity: resolved };
   return resolved;
@@ -145,7 +145,23 @@ function queueCount() {
 
 function compactQueue() {
   const file = telemetryQueueFile();
-  if (!fs.existsSync(file) || fs.statSync(file).size <= MAX_QUEUE_BYTES) return;
+  if (!fs.existsSync(file) || fs.statSync(file).size <= (isOpenClientDistribution() ? 256 * 1024 : MAX_QUEUE_BYTES)) return;
+  if (isOpenClientDistribution()) {
+    // Optional Free observations have strict disk and retention caps, unlike
+    // the independently consented private-Beta audit trail.
+    const now = Date.now();
+    const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
+      .filter(line => {
+        try { const at = Date.parse(JSON.parse(line).at); return Number.isFinite(at) && at >= now - 7 * 86400_000 && at <= now + 3600_000; }
+        catch { return false; }
+      }).slice(-250);
+    while (rows.length && Buffer.byteLength(rows.join("\n"), "utf8") > 256 * 1024) rows.shift();
+    const temp = file + ".bounded-" + process.pid;
+    fs.writeFileSync(temp, rows.join("\n") + (rows.length ? "\n" : ""), { mode: 0o600 });
+    fs.renameSync(temp, file);
+    segmentLineCountCache.delete(file);
+    return;
+  }
   // Archive the complete immutable FIFO segment; the uploader drains oldest
   // segments first. Never discard unsent events to maintain the 5MB target.
   const archived = path.join(telemetryDir(),
@@ -158,6 +174,8 @@ function appendQueueMany(events) {
   const list = (events || []).filter(Boolean);
   if (!list.length) return 0;
   return withQueueMutationLock(() => {
+    // An explicit Free opt-out also blocks events prepared by other MCP processes.
+    if (isOpenClientDistribution() && !readConfig().enabled) return 0;
     fs.appendFileSync(
       telemetryQueueFile(),
       list.map(event => JSON.stringify(event)).join("\n") + "\n",
@@ -343,10 +361,28 @@ function scrubQueuedArchitectureProfiles() {
   });
 }
 
+export function initializeFreeTelemetry() {
+  if (!isOpenClientDistribution()) return telemetryStatus();
+  const previous = safeJsonRead(configFile(), null);
+  // First install defaults to on. An explicit Free opt-out survives reinstall.
+  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: true,
+    consentVersion: "free-v1", dataIntelligenceDecision: "accepted",
+    updatedAt: new Date().toISOString() });
+  if (readConfig().enabled) ensureIdentity();
+  return telemetryStatus();
+}
+
 export function setTelemetryEnabled(enabled) {
-  // Avoid rewriting prior Beta preferences and never enable Beta upload from OSS.
   if (isOpenClientDistribution()) {
-    if (enabled) throw new Error("legacy_beta_telemetry_disabled");
+    const previous = readConfig();
+    if (enabled) ensureIdentity();
+    writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
+      enabled: Boolean(enabled), consentVersion: "free-v1",
+      updatedAt: new Date().toISOString() });
+    if (!enabled) {
+      // User Free opt-out removes unsent Free events, never Beta data.
+      try { fs.rmSync(telemetryQueueFile(), { force: true }); } catch {}
+    }
     return telemetryStatus();
   }
   const previous = readConfig();
@@ -370,7 +406,12 @@ export function setTelemetryEnabled(enabled) {
 /** The caller must obtain an explicit, versioned collection choice before enabling. */
 export function setDataIntelligenceEnabled(enabled) {
   if (isOpenClientDistribution()) {
-    if (enabled) throw new Error("legacy_beta_telemetry_disabled");
+    const previous = readConfig();
+    if (enabled && !previous.enabled) throw new Error("telemetry_must_be_enabled");
+    writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
+      dataIntelligenceDecision: enabled ? "accepted" : "declined",
+      consentVersion: "free-v1", updatedAt: new Date().toISOString() });
+    if (!enabled) scrubQueuedArchitectureProfiles();
     return telemetryStatus();
   }
   const previous = readConfig();
@@ -418,20 +459,16 @@ export function telemetryQueueAge() {
 }
 
 export function telemetryStatus() {
-  if (isOpenClientDistribution()) return {
-    enabled: false,
-    consentVersion: null,
-    dataIntelligenceEnabled: false,
-    dataIntelligenceDecision: null,
-    installationId: null,
-    queuedEvents: 0,
-    queuedSegmentCount: 0,
-    oldestQueuedAt: null,
-    oldestQueuedAgeMs: null,
-    syncDiagnostics: null,
-    cloudTransportConfigured: false,
-    queueFile: telemetryQueueFile()
-  };
+  if (isOpenClientDistribution()) {
+    const config = readConfig();
+    const identity = safeJsonRead(identityFile(), null);
+    return { enabled: config.enabled === true, consentVersion: config.consentVersion || null,
+      dataIntelligenceEnabled: config.enabled === true && config.dataIntelligenceDecision !== "declined",
+      dataIntelligenceDecision: config.dataIntelligenceDecision || null,
+      installationId: identity?.installationId || null,
+      queuedEvents: queueCount(), queuedSegmentCount: 0, ...telemetryQueueAge(),
+      syncDiagnostics: null, cloudTransportConfigured: false, queueFile: telemetryQueueFile() };
+  }
   const config = readConfig();
   const identity = safeJsonRead(identityFile(), null);
   const cloud = safeJsonRead(path.join(vibeHome(), "cloud", "client.json"), null);
@@ -453,7 +490,6 @@ export function telemetryStatus() {
 }
 
 export function inspectTelemetryQueue({ limit = 50 } = {}) {
-  if (isOpenClientDistribution()) return [];
   const file = telemetryQueueFile();
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, "utf8")
@@ -723,8 +759,43 @@ export function enqueueCallCompletedTelemetry({
   return true;
 }
 
+// Free V4 upload projection. Never transmit the full Beta V4 event object.
+export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) {
+ if(!isOpenClientDistribution())return [];
+ const valid=new Set(["lifecycle.installed","lifecycle.uninstalled","lifecycle.integration_removed",
+  "session_start","checkpoint","project_status","findings","explain_finding",
+  "product_intent","product_intent_set","architecture_review_requested","feedback",
+  "call.completed","scan.observed","finding.observed","notice.surfaced","notice.suppressed",
+  "finding.new_attention","finding.worsened","finding.improved","feedback.useful",
+  "feedback.false_positive","feedback.too_early","feedback.too_late","feedback.confusing"]);
+ const enumValue=v=>typeof v==="string"&&/^[a-z0-9_.:-]{1,48}$/i.test(v)?v:null;
+ return events.slice(0,12).map(e=>{
+  if(!e||e.schemaVersion!==4||!valid.has(e.event)||
+   !/^[a-f0-9-]{36}$/i.test(e.eventId||"")||
+   !/^[a-f0-9-]{36}$/i.test(e.installationId||""))return null;
+  const payload={};
+  for(const k of ["reason","mode","sourceFilesBucket","totalLocBucket",
+   "productionDependenciesBucket","testFilesBucket","actionMode","verdict",
+   "currentActionMode","transitionType","toolEvent"]){
+   const v=enumValue(e.payload?.[k]);if(v!==null)payload[k]=v;
+  }
+  for(const k of ["durationMs","wallTimeMs","fullScanCount","cachedCheckCount",
+   "deferredCheckCount","score","confidence","suppressedCount","maxNotices"]){
+   const v=e.payload?.[k];
+   if(typeof v==="number"&&Number.isFinite(v)&&v>=0&&v<=3_600_000)
+     payload[k]=Math.round(v);
+  }
+  if(typeof e.payload?.projectChanged==="boolean")
+   payload.projectChanged=e.payload.projectChanged;
+  const out={schemaVersion:4,eventId:e.eventId,installationId:e.installationId,
+   event:e.event,at:e.at,clientVersion:CLIENT_VERSION,
+   projectId:/^[a-f0-9]{32}$/i.test(e.projectId||"")?e.projectId:null,
+   agent:enumValue(e.agent),stage:enumValue(e.stage),payload};
+  return Buffer.byteLength(JSON.stringify(out))<=4096?out:null;
+ }).filter(Boolean);
+}
+
 export function readTelemetryBatch({ limit = 100 } = {}) {
-  if (isOpenClientDistribution()) return [];
   const file = telemetryQueueFiles()[0];
   if (!file) return [];
   return fs.readFileSync(file, "utf8")
@@ -738,7 +809,6 @@ export function readTelemetryBatch({ limit = 100 } = {}) {
 }
 
 export function acknowledgeTelemetryEvents(eventIds = []) {
-  if (isOpenClientDistribution()) return 0;
   const ids = new Set(eventIds.filter(Boolean));
   if (!ids.size) return 0;
   return withQueueMutationLock(() => {
