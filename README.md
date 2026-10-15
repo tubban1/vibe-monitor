@@ -12,6 +12,14 @@ A **read-only project architecture advisor for the coding agent you already use*
 
 > **Illustrative advice format (not a real scan):** “This file mixes UI and storage changes. Before adding another feature, separate the storage interaction. **Don't split into microservices yet**; the evidence doesn't justify that complexity.”
 
+**Your code stays yours.**
+
+Vibe Monitor analyzes your project locally. Your source code, prompts, and project files are never uploaded to our servers.
+
+Cloud connectivity delivers architecture policies and supports privacy-conscious product improvement.
+
+[Privacy & Data Practices](https://github.com/tubban1/vibe-monitor/blob/main/docs/governance/TELEMETRY_PRIVACY_V1.md)
+
 🌐 [Website](https://vibe.fde.fan) · [Ask your Agent to evaluate Vibe Monitor](docs/AGENT_EVALUATION.md) · [Security and privacy](SECURITY.md)
 
 ## Ask your coding agent first
