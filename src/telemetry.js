@@ -14,6 +14,9 @@ const TELEMETRY_SCHEMA_VERSION = 4;
 const MAX_QUEUE_BYTES = 5 * 1024 * 1024;
 const SEGMENT_NAME = /^queue-segment-\d{13}-[a-f0-9]{12}\.jsonl$/;
 const segmentLineCountCache = new Map();
+// Sweep small Free queues at most hourly per process; a fresh MCP process
+// always checks its own queue before reading or uploading observations.
+let freeQueueLastSweep = {file:null,at:0};
 
 // Serialize queue mutations across simultaneous Codex/Agent MCP processes.
 // 180ms worst-case contention is bounded; no content or credentials go to Cloud.
@@ -128,6 +131,7 @@ function telemetryQueueFiles() {
 }
 
 function queueCount() {
+  sweepFreeQueueIfDue();
   let count = 0;
   for (const file of telemetryQueueFiles()) {
     const stat = fs.statSync(file);
@@ -143,25 +147,45 @@ function queueCount() {
   return count;
 }
 
-function compactQueue() {
+function sweepFreeQueueIfDue() {
+  if (!isOpenClientDistribution()) return;
   const file = telemetryQueueFile();
-  if (!fs.existsSync(file) || fs.statSync(file).size <= (isOpenClientDistribution() ? 256 * 1024 : MAX_QUEUE_BYTES)) return;
+  if (!fs.existsSync(file)) return;
+  const now = Date.now();
+  if (freeQueueLastSweep.file === file && now - freeQueueLastSweep.at < 3600_000 &&
+      fs.statSync(file).size <= 256 * 1024) return;
+  // Expiry applies to tiny offline queues too, without adding per-tool CPU.
+  withQueueMutationLock(() => compactQueue({force:true}));
+}
+function compactQueue({force=false}={}) {
+  const file = telemetryQueueFile();
+  if (!fs.existsSync(file)) return;
+  const size = fs.statSync(file).size;
   if (isOpenClientDistribution()) {
-    // Optional Free observations have strict disk and retention caps, unlike
-    // the independently consented private-Beta audit trail.
+    // Never alter the independent private-Beta audit trail.
     const now = Date.now();
-    const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
+    if (!force && size <= 256 * 1024 && freeQueueLastSweep.file === file &&
+        now - freeQueueLastSweep.at < 3600_000) return;
+    const original = fs.readFileSync(file, "utf8");
+    const rows = original.split("\n").filter(Boolean)
       .filter(line => {
         try { const at = Date.parse(JSON.parse(line).at); return Number.isFinite(at) && at >= now - 7 * 86400_000 && at <= now + 3600_000; }
         catch { return false; }
       }).slice(-250);
     while (rows.length && Buffer.byteLength(rows.join("\n"), "utf8") > 256 * 1024) rows.shift();
-    const temp = file + ".bounded-" + process.pid;
-    fs.writeFileSync(temp, rows.join("\n") + (rows.length ? "\n" : ""), { mode: 0o600 });
-    fs.renameSync(temp, file);
-    segmentLineCountCache.delete(file);
+    const next = rows.join("\n") + (rows.length ? "\n" : "");
+    if (next !== original) {
+      const temp = file + ".bounded-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+      try {
+        fs.writeFileSync(temp, next, {encoding:"utf8",mode:0o600});
+        fs.renameSync(temp,file);
+      } finally { try { fs.rmSync(temp,{force:true}); } catch {} }
+      segmentLineCountCache.delete(file);
+    }
+    freeQueueLastSweep = {file,at:now};
     return;
   }
+  if (size <= MAX_QUEUE_BYTES) return;
   // Archive the complete immutable FIFO segment; the uploader drains oldest
   // segments first. Never discard unsent events to maintain the 5MB target.
   const archived = path.join(telemetryDir(),
@@ -374,15 +398,19 @@ export function initializeFreeTelemetry() {
 
 export function setTelemetryEnabled(enabled) {
   if (isOpenClientDistribution()) {
-    const previous = readConfig();
     if (enabled) ensureIdentity();
-    writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
-      enabled: Boolean(enabled), consentVersion: "free-v1",
-      updatedAt: new Date().toISOString() });
-    if (!enabled) {
-      // User Free opt-out removes unsent Free events, never Beta data.
-      try { fs.rmSync(telemetryQueueFile(), { force: true }); } catch {}
-    }
+    // The opt-out and pending-event purge share appendQueueMany's lock so a
+    // concurrent Agent cannot append after the user disables collection.
+    withQueueMutationLock(() => {
+      const previous = readConfig();
+      writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
+        enabled: Boolean(enabled), consentVersion: "free-v1",
+        updatedAt: new Date().toISOString() });
+      if (!enabled) {
+        try { fs.rmSync(telemetryQueueFile(), {force:true}); } catch {}
+        segmentLineCountCache.delete(telemetryQueueFile());
+      }
+    });
     return telemetryStatus();
   }
   const previous = readConfig();
@@ -490,6 +518,7 @@ export function telemetryStatus() {
 }
 
 export function inspectTelemetryQueue({ limit = 50 } = {}) {
+  sweepFreeQueueIfDue();
   const file = telemetryQueueFile();
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, "utf8")
@@ -796,6 +825,7 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
 }
 
 export function readTelemetryBatch({ limit = 100 } = {}) {
+  sweepFreeQueueIfDue();
   const file = telemetryQueueFiles()[0];
   if (!file) return [];
   return fs.readFileSync(file, "utf8")

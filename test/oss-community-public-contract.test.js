@@ -7,10 +7,9 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,telemetryStatus,setTelemetryEnabled} from "../src/telemetry.js";
+import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
-
 test("Windows native archive fallback accepts missing module only, never safety-denied errors",async()=>{
  const {windowsArchiveCommandUnavailable}=await import("../src/platform.js");
  const absent={stderr:"Expand-Archive: Microsoft.PowerShell.Archive",message:"CouldNotAutoloadMatchingModule"};
@@ -21,7 +20,6 @@ test("Windows native archive fallback accepts missing module only, never safety-
  assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive archive corrupt"}),false);
  assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive: PermissionDenied"}),false);
 });
-
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
 test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{
@@ -170,7 +168,7 @@ test("Node archive streaming bytes are bounded even without Content-Length",asyn
  finally{globalThis.fetch=original;}
 });
 
-test("Free V4 wire never forwards raw project, prompt, token or nested intelligence",()=>{
+test("Free V4 wire never forwards raw project, prompt, token or nested intelligence",{skip:!staged?"OSS-only client test":false},()=>{
  const event={schemaVersion:4,eventId:crypto.randomUUID(),
   installationId:crypto.randomUUID(),event:"scan.observed",at:new Date().toISOString(),
   projectId:"b".repeat(32),agent:"codex",stage:"S4",
@@ -182,7 +180,37 @@ test("Free V4 wire never forwards raw project, prompt, token or nested intellige
  assert.deepEqual(rows[0].payload,{sourceFilesBucket:"21-50",totalLocBucket:"501-1000"});
  assert.doesNotMatch(JSON.stringify(rows),/raw user message|placeholder|const secret|private\/source|architectureProfile/);
 });
-test("Free on-by-default queue is separate from old Beta, bounded and opt-out purges",t=>{
+test("Free tiny offline queue expires at seven days and opt-out blocks later events",{
+ skip:!staged?"OSS-only queue expiry contract":false
+},t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-free-expiry-"));
+ const previous=process.env.VIBE_MONITOR_HOME;
+ process.env.VIBE_MONITOR_HOME=root;
+ t.after(()=>{
+  if(previous===undefined)delete process.env.VIBE_MONITOR_HOME;
+  else process.env.VIBE_MONITOR_HOME=previous;
+  fs.rmSync(root,{recursive:true,force:true});
+ });
+ const legacy=path.join(root,"telemetry");
+ fs.mkdirSync(legacy,{recursive:true});
+ const state='{"enabled":true,"consentVersion":"private-beta-v4"}';
+ fs.writeFileSync(path.join(legacy,"config.json"),state);
+ assert.equal(initializeFreeTelemetry().enabled,true);
+ const file=path.join(root,"free-telemetry","queue.jsonl");
+ const stale={eventId:crypto.randomUUID(),at:new Date(Date.now()-9*86400_000).toISOString(),event:"checkpoint"};
+ const fresh={eventId:crypto.randomUUID(),at:new Date().toISOString(),event:"checkpoint"};
+ fs.writeFileSync(file,JSON.stringify(stale)+"\n"+JSON.stringify(fresh)+"\n");
+ assert.ok(fs.statSync(file).size<256*1024);
+ assert.deepEqual(readTelemetryBatch({limit:10}).map(e=>e.eventId),[fresh.eventId]);
+ assert.doesNotMatch(fs.readFileSync(file,"utf8"),new RegExp(stale.eventId));
+ assert.equal(setTelemetryEnabled(false).enabled,false);
+ assert.equal(fs.existsSync(file),false);
+ enqueueActivityTelemetry({event:"checkpoint",sessionId:crypto.randomUUID(),agent:"codex"});
+ assert.equal(fs.existsSync(file),false);
+ assert.equal(fs.readFileSync(path.join(legacy,"config.json"),"utf8"),state);
+});
+
+test("Free on-by-default queue is separate from old Beta, bounded and opt-out purges",{skip:!staged?"OSS-only client test":false},t=>{
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-free-telemetry-v4-"));
  const vars=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"];
  const prior=vars.map(k=>process.env[k]);
