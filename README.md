@@ -1,25 +1,54 @@
 # Vibe Monitor
 
-**Architecture decision intelligence for AI-assisted software development.**
+**AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 
-Vibe Monitor helps Vibe Coders analyze local architecture evidence, follow the trajectory of their projects and decide when an architectural change is worth making.
+**AI ships code fast. It can build spaghetti code even faster. Vibe Monitor helps your coding agent spot architectural trouble before it gets expensive.**
 
-🌐 **Official website:** https://vibe.fde.fan
+A **read-only project architecture advisor for the coding agent you already use**, not another IDE and not a machine for flooding you with warnings.
 
-## Open-source client — in preparation
+- **What's getting harder to change?** Identify concrete pressure in your project's structure and change history.
+- **What should I do next?** Get a practical next step—and learn what **not** to over-engineer.
+- **Did it actually help?** Track what improved or got worse across coding sessions.
 
-This PUBLIC repository is for the future open-source Vibe Monitor **CLI / MCP client**. Free, Pro, and Team will use **the same client, installer, and update pipeline**, with access and quotas determined by Vibe Cloud. There is no Community subscription or separate edition. Optional private Cloud services provide signed strategies, managed account/history capabilities, and server-enforced premium entitlements.
+> **Illustrative advice format (not a real scan):** “This file mixes UI and storage changes. Before adding another feature, separate the storage interaction. **Don't split into microservices yet**; the evidence doesn't justify that complexity.”
 
-**The client source and an approved open-source license have NOT been published yet.** This public repository is not an open-source release of the current npm package.
+🌐 [Website](https://vibe.fde.fan) · [Ask your Agent to evaluate Vibe Monitor](docs/AGENT_EVALUATION.md) · [Security and privacy](SECURITY.md)
 
-The current `@vibe-monitor/setup@beta` npm channel remains **private beta software**, with existing activation requirements, private evaluation license and [Telemetry & Privacy Contract v4](docs/governance/TELEMETRY_PRIVACY_V1.md).
+## Ask your coding agent first
 
-## Private Beta
+Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
-Beta interest can be expressed through the [public GitHub issue form](https://github.com/tubban1/vibe-monitor/issues/new?template=beta-access.yml). This is PUBLIC: do not post emails, passwords, private repository URLs, source code, logs, credentials or activation codes.
+> Look at https://vibe.fde.fan and https://github.com/tubban1/vibe-monitor. Explain what Vibe Monitor really does, its limitations, security, data collection, and installation. If you have filesystem access, **ask me which project you may inspect**. With my permission, inspect only that project **read-only** and identify one or two real architecture or workflow pain points from evidence. Tell me honestly whether Vibe Monitor would help, or why I don't need it. Don't install or execute downloaded software, change files, or upload project data without my approval.
 
-## Website / Cloud source
+[Full Agent evaluation flow and report template →](docs/AGENT_EVALUATION.md)
 
-The live website at [vibe.fde.fan](https://vibe.fde.fan), future authenticated user frontend, Admin Console and proprietary Vibe Cloud backend are maintained in the **private** development repository. They are not part of this project's future client codebase. Historic public-site commits remain in this repository's past Git history; no previously published static website code can be made secret retroactively.
+## Try the current Beta
 
-Open-client export will follow an audited source allowlist, license/IP review, privacy separation, cross-platform installation tests, public CI, and verifiable packaging. Contributions and build instructions will be added with the audited source release.
+The published `@vibe-monitor/setup@beta` is **private Beta software**, not the future public Free release. New installations currently **require an activation code** and **the disclosed Beta telemetry**. Review the [Beta telemetry contract](docs/governance/TELEMETRY_PRIVACY_V1.md) and obtain a code before running:
+
+```bash
+npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@beta install
+```
+
+The default official Cloud API is `https://vibe-api.fde.fan`. [Installation, verification, error handling and uninstall guide →](docs/INSTALL.md)
+
+**Future direction: one installer, Free / Pro / Team.** Free should work without creating an account, with clearly disclosed, privacy-minimized **product-improvement telemetry enabled by default**. Pro/Team use the *same client* and unlock Cloud services through authentication and server-enforced entitlements. This Free onboarding/telemetry contract is **not shipped in Beta.41**.
+
+## What happens to your code and computer?
+
+| Concern | Verified behavior / limit |
+| --- | --- |
+| Read-only code analysis | Project source is analyzed without rewriting it. **Installing does modify managed Agent MCP/rule configuration.** |
+| No source-code upload in default Beta telemetry | Source, diffs, prompts, secrets, paths and filenames aren't collected by the default telemetry. Coarse architecture, usage and outcome signals **are** sent under the disclosed Beta contract. |
+| No extra always-on daemon | Designed around Agent MCP sessions and checkpoints; not a separately installed permanent monitoring daemon. Invocation depends on the host Agent. |
+| Backup and undo | Supported configuration files use scoped backup/managed-block mechanisms. `uninstall` removes managed Agent integration; it does **not** guarantee deletion of all local history or backups. |
+
+[Detailed security boundaries →](SECURITY.md) · [Practical scenarios →](docs/EXAMPLES.md)
+
+## Is Vibe Monitor open source?
+
+The **public client-source review is already visible in [Draft PR #5](https://github.com/tubban1/vibe-monitor/pull/5)**. Its source has **not** been merged to `main` or formally released as an approved open-source package. The npm Beta remains privately licensed. Do not confuse a public Draft PR or passing CI with release approval.
+
+The website and proprietary Vibe Cloud live in a separate private repository. Public client, Cloud signing, IP/licensing, Windows release gates, and production service-level entitlements must pass their own reviews before a stable release.
+
+[Request Beta access](https://github.com/tubban1/vibe-monitor/issues/new?template=beta-access.yml). GitHub issues are public: never post activation codes, credentials, private URLs, source files, or logs with sensitive information.
