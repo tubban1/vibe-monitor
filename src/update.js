@@ -20,6 +20,53 @@ import {
 } from "./install.js";
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 
+// Separate public-client artifact signing trust: architecture policy signature
+// never authorizes executable updates. Keys must be independently audited/pinned.
+export const FREE_UPDATE_MANIFEST_URL="https://vibe.fde.fan/.well-known/vibe-monitor-update.json";
+export const FREE_UPDATE_KEY_ID="free-update-ed25519-v1";
+export const FREE_UPDATE_NEXT_KEY_ID="free-update-ed25519-v2";
+export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM=null;
+export const FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
+const stableVersion=/^\d+\.\d+\.\d+$/;
+const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
+const exactKeys=(x,keys)=>plain(x)&&Object.keys(x).every(k=>keys.includes(k));
+export function verifyFreeUpdateEnvelope(e,{keys=null,now=Date.now,minRevision=0}={}){
+ const trusted=keys||{[FREE_UPDATE_KEY_ID]:FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,
+  [FREE_UPDATE_NEXT_KEY_ID]:FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM};
+ const p=e?.payload,artifact=p?.artifact,n=Math.floor(now()/1000);
+ if(!exactKeys(e,["payload","keyId","signature"])||
+    ![FREE_UPDATE_KEY_ID,FREE_UPDATE_NEXT_KEY_ID].includes(e.keyId)||
+    !exactKeys(trusted,[FREE_UPDATE_KEY_ID,FREE_UPDATE_NEXT_KEY_ID])||
+    typeof trusted[e.keyId]!=="string"||
+    !exactKeys(p,["schemaVersion","audience","revision","issuedAt","expiresAt",
+      "version","rolloutPercent","rolloutSalt","artifact"])||
+    !exactKeys(artifact,["url","sha256"])||
+    p.schemaVersion!==1||p.audience!=="vibe-monitor-free-update-v1"||
+    !Number.isSafeInteger(p.revision)||p.revision<Math.max(1,minRevision)||
+    !Number.isSafeInteger(p.issuedAt)||!Number.isSafeInteger(p.expiresAt)||
+    p.issuedAt>n+60||p.issuedAt<n-86460||
+    p.expiresAt<=n||p.expiresAt-p.issuedAt>86400||
+    !stableVersion.test(p.version||"")||
+    !Number.isInteger(p.rolloutPercent)||p.rolloutPercent<0||p.rolloutPercent>100||
+    typeof p.rolloutSalt!=="string"||!/^[a-z0-9-]{8,64}$/i.test(p.rolloutSalt)||
+    typeof artifact.sha256!=="string"||!/^[a-f0-9]{64}$/.test(artifact.sha256)||
+    typeof artifact.url!=="string"||typeof e.signature!=="string"||
+    !/^[A-Za-z0-9_-]{86}$/.test(e.signature))return null;
+ try{
+  const u=new URL(artifact.url);
+  // Registry-owned immutable package tarball only, never an arbitrary CDN URL.
+  if(u.protocol!=="https:"||u.hostname!=="registry.npmjs.org"||u.port||
+     u.username||u.password||u.search||u.hash||
+     !["/@vibe-monitor/setup/-/setup-"+p.version+".tgz",
+       "/@vibe-monitor%2fsetup/-/setup-"+p.version+".tgz"].includes(u.pathname))
+   return null;
+  const key=crypto.createPublicKey(trusted[e.keyId]);
+  if(key.asymmetricKeyType!=="ed25519"||
+     !crypto.verify(null,Buffer.from(JSON.stringify(p)),key,Buffer.from(e.signature,"base64url")))return null;
+  return Object.freeze({...p,keyId:e.keyId});
+ }catch{return null;}
+}
+
 const MAX_UPDATE_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_UPDATE_STREAM_CHUNKS = 4096;
 const UPDATE_LOCK_STALE_MS = 30 * 60 * 1000;

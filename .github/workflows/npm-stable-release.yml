@@ -1,0 +1,117 @@
+name: Vibe Monitor stable release (approval + signatures)
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Approved stable semver (e.g. 1.0.0)
+        required: true
+        type: string
+      expected_sha:
+        description: Exact reviewed public main commit SHA
+        required: true
+        type: string
+      approval_ticket:
+        description: Documented owner approval reference
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: vibe-monitor-stable-npm
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: stable-npm-release
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - name: Fail closed without exact SHA, version, or approved release gates
+        env:
+          VERSION: ${{ inputs.expected_version }}
+          COMMIT_SHA: ${{ inputs.expected_sha }}
+          APPROVAL: ${{ inputs.approval_ticket }}
+          OWNER_APPROVED: ${{ vars.VIBE_STABLE_RELEASE_APPROVED }}
+          IP_APPROVED: ${{ vars.VIBE_IP_RIGHTS_APPROVED }}
+          PRIVACY_APPROVED: ${{ vars.VIBE_PRIVACY_APPROVED }}
+          OS_APPROVED: ${{ vars.VIBE_NATIVE_RELEASE_QA_APPROVED }}
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync('package.json','utf8'));
+          if(process.env.COMMIT_SHA!==process.env.GITHUB_SHA||
+             !/^[a-f0-9]{40}$/.test(process.env.COMMIT_SHA||'')||
+             !/^\d+\.\d+\.\d+$/.test(process.env.VERSION||'')||
+             p.version!==process.env.VERSION||p.private!==false||
+             p.name!=='@vibe-monitor/setup'||p.license!=='Apache-2.0')
+            throw Error('not_audited_stable_source');
+          if(!/^[A-Za-z0-9_-]{8,120}$/.test(process.env.APPROVAL||''))
+            throw Error('owner_approval_missing');
+          for(const k of ['OWNER_APPROVED','IP_APPROVED','PRIVACY_APPROVED','OS_APPROVED'])
+            if(process.env[k]!=='yes')throw Error('release_gate_missing:'+k);
+          JS
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=moderate
+      - name: Require real signed Cloud policy and signed update manifest
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          import {verifyCommunityPolicyEnvelope,COMMUNITY_POLICY_KEY_ID,COMMUNITY_POLICY_NEXT_KEY_ID,
+            COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM} from './src/community-cloud-policy.js';
+          import {verifyFreeUpdateEnvelope,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,FREE_UPDATE_MANIFEST_URL} from './src/update.js';
+          if(!COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM||!FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM)
+            throw Error('signed_trust_roots_not_pinned');
+          const fetchSigned=async url=>{
+            const r=await fetch(url,{redirect:'error',cache:'no-store',signal:AbortSignal.timeout(5000)});
+            if(r.status!==200)throw Error('release_endpoint_unavailable');
+            const declared=Number(r.headers.get('content-length')||0);
+            if(!Number.isFinite(declared)||declared>16384)throw Error('oversized_signed_release');
+            const reader=r.body.getReader(),parts=[];let n=0;
+            try{while(true){const {done,value}=await reader.read();if(done)break;
+              n+=value.byteLength;if(n>16384)throw Error('oversized_signed_release');
+              parts.push(Buffer.from(value));}}finally{reader.releaseLock();}
+            return JSON.parse(Buffer.concat(parts).toString('utf8'));
+          };
+          const [policy,release]=await Promise.all([
+            fetchSigned('https://vibe-api.fde.fan/free/policy'),
+            fetchSigned(FREE_UPDATE_MANIFEST_URL)]);
+          const verified=verifyCommunityPolicyEnvelope(policy,{publicKeysById:{
+            [COMMUNITY_POLICY_KEY_ID]:COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,
+            [COMMUNITY_POLICY_NEXT_KEY_ID]:COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM}});
+          const manifest=verifyFreeUpdateEnvelope(release);
+          const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+          if(!verified||!manifest||manifest.version!==pkg.version)
+            throw Error('signed_release_verification_failed');
+          const pack=JSON.parse(execFileSync('npm',['pack','--json'],{encoding:'utf8'}))[0];
+          const digest=crypto.createHash('sha256').update(fs.readFileSync(pack.filename)).digest('hex');
+          if(digest!==manifest.artifact.sha256)throw Error('signed_artifact_sha_mismatch');
+          fs.writeFileSync('.release-tarball-name',pack.filename);
+          JS
+      - name: Refuse immutable version collision
+        env:
+          VERSION: ${{ inputs.expected_version }}
+        run: |
+          if npm view "@vibe-monitor/setup@$VERSION" version --prefer-online >/dev/null 2>&1; then
+            echo "Version exists; re-publication prohibited" >&2
+            exit 1
+          fi
+      - run: npm install --global 'npm@^11.5.1'
+      - name: Publish exact signed package (npm OIDC provenance)
+        run: npm publish "$(cat .release-tarball-name)" --tag latest --access public --provenance
+      - name: Verify stable npm dist-tag
+        env:
+          VERSION: ${{ inputs.expected_version }}
+        run: test "$(npm view @vibe-monitor/setup dist-tags.latest --prefer-online)" = "$VERSION"

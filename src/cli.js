@@ -7,11 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { analyzeProject, buildVibeCoderBrief } from "./engine.js";
-import { buildDisabledPolicyPayload, runMcpServer } from "./mcp.js";
+import { buildDisabledPolicyPayload, applyMonitoringPolicy, runMcpServer } from "./mcp.js";
 import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setup.js";
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
 import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
-import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, reportLifecycleEvent } from "./cloud.js";
+import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
 import { installProduct, installOpenClientProduct, installStatus } from "./install.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from "./update.js";
@@ -276,7 +276,11 @@ if (command === "install") {
     if (isOpenClientDistribution()) process.exitCode=2;
   } else {
     const persist = command !== "status" && command !== "brief";
-    const result = analyzeProject(positionalPath(), { persist, decisionPolicy: remotePolicy.config?.decisionPolicy });
+    const result = applyMonitoringPolicy(
+      analyzeProject(positionalPath(), { persist, decisionPolicy: remotePolicy.config?.decisionPolicy,
+        enabledMonitors:remotePolicy.config?.enabledMonitors }),
+      remotePolicy.config || {}
+    );
     if (isOpenClientDistribution() && !freeAnalysisContractStatus().serviceEnabled) {
       print(buildDisabledPolicyPayload({enabled:false,source:"free-service-contract",reason:"telemetry_required"}));
       process.exitCode=2;
@@ -284,6 +288,12 @@ if (command === "install") {
       const brief = buildVibeCoderBrief(result);
       if (json) print(brief); else printDecisionBrief(brief);
     } else if (json) print(result); else printHuman(result);
+  }
+  // After reporting the result, best-effort Free sync; bounded transport
+  // backoff is persisted across CLI and MCP processes. Never fail analysis for
+  // an unavailable service or make network access part of architecture scans.
+  if(isOpenClientDistribution() && remotePolicy.enabled!==false){
+    try{await syncFreeTelemetry();}catch{/* local scan stays successful */}
   }
 } else if (command === "projects") {
   if (isOpenClientDistribution() && !freeAnalysisContractStatus().serviceEnabled) {
@@ -379,6 +389,8 @@ if (command === "install") {
       console.error("Vibe Monitor Private Beta requires telemetry. Telemetry cannot be disabled during the beta.");
       process.exit(2);
     }
+  } else if (action === "sync" && isOpenClientDistribution()) {
+    print(await syncFreeTelemetry({force:args.includes("--force")}));
   } else if (action === "inspect") {
     const parsedLimit = Number(optionValue("--limit", "50"));
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 50;

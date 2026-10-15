@@ -9,7 +9,7 @@ import { findingDetail } from "./finding-detail.js";
 import { enrichFindingIntelligence } from "./finding-intelligence.js";
 import { observeOutcomeCheckpoint } from "./outcomes.js";
 import { detectEncodedIdContract } from "./contract-evidence.js";
-import { scoringPolicyIdentity } from "./decision-policy.js";
+import { scoringPolicyIdentity,monitorPolicyFingerprint } from "./decision-policy.js";
 
 function fileMap(snapshot) {
   return new Map((snapshot?.files || []).map(file => [file.path, file]));
@@ -1298,31 +1298,36 @@ function aiDriftFinding(projectId, current, previous, decisionPolicy = null) {
   };
 }
 
-function buildFindings(projectId, current, previous, intent, root, decisionPolicy = null) {
+function buildFindings(projectId, current, previous, intent, root, decisionPolicy = null,enabledMonitors=null) {
   const previousFiles = fileMap(previous);
   const findings = [];
 
-  for (const file of current.files) {
+  const isEnabled=name=>enabledMonitors?.[name]!==false;
+  if(isEnabled("code-structure"))for (const file of current.files) {
     const f = componentFinding(projectId, file, previousFiles.get(file.path), current.git.commitCount, decisionPolicy);
     if (f) findings.push(f);
   }
-  for (const f of [
-    couplingFinding(projectId, current, previous, decisionPolicy),
-    portabilityFinding(projectId, current, previous, decisionPolicy),
-    securityFinding(projectId, current, previous, decisionPolicy),
-    stateDataFinding(projectId, current, previous, decisionPolicy),
-    asyncConcurrencyFinding(projectId, current, previous, decisionPolicy),
-    reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy),
-    testingVerificationFinding(projectId, current, previous, decisionPolicy),
-    observabilityFinding(projectId, current, previous, decisionPolicy),
-    distributionScalingFinding(projectId, current, previous, intent, decisionPolicy),
-    apiContractFinding(projectId, current, previous, intent, decisionPolicy),
-    providerIntegrationFinding(projectId, current, previous, decisionPolicy),
-    aiDriftFinding(projectId, current, previous, decisionPolicy)
-  ]) if (f) findings.push(f);
-
-  const contractFinding = detectEncodedIdContract(root, current.files, projectId);
-  if (contractFinding) findings.push(contractFinding);
+  const detectors=[
+    ["dependency-coupling",()=>couplingFinding(projectId, current, previous, decisionPolicy)],
+    ["platform-portability",()=>portabilityFinding(projectId, current, previous, decisionPolicy)],
+    ["security-surface",()=>securityFinding(projectId, current, previous, decisionPolicy)],
+    ["state-data",()=>stateDataFinding(projectId, current, previous, decisionPolicy)],
+    ["async-concurrency",()=>asyncConcurrencyFinding(projectId, current, previous, decisionPolicy)],
+    ["reliability-recovery",()=>reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy)],
+    ["testing-verification",()=>testingVerificationFinding(projectId, current, previous, decisionPolicy)],
+    ["observability",()=>observabilityFinding(projectId, current, previous, decisionPolicy)],
+    ["distribution-scaling",()=>distributionScalingFinding(projectId, current, previous, intent, decisionPolicy)],
+    ["api-contract",()=>apiContractFinding(projectId, current, previous, intent, decisionPolicy)],
+    ["provider-integration",()=>providerIntegrationFinding(projectId, current, previous, decisionPolicy)],
+    ["ai-drift",()=>aiDriftFinding(projectId, current, previous, decisionPolicy)]
+  ];
+  for(const [family,detect] of detectors)if(isEnabled(family)){
+    const finding=detect();if(finding)findings.push(finding);
+  }
+  if(isEnabled("api-contract")){
+    const contractFinding=detectEncodedIdContract(root,current.files,projectId);
+    if(contractFinding)findings.push(contractFinding);
+  }
 
   // Preserve evidence scores while explaining a cloud-calibrated stage. Some
   // specialist safety/intent guards deliberately cap the stage after scoring.
@@ -1362,7 +1367,8 @@ export function analyzeProject(
     projectRoot = null,
     identity: precomputedIdentity = null,
     scanLimits = null,
-    decisionPolicy = null
+    decisionPolicy = null,
+    enabledMonitors = null
   } = {}
 ) {
   const engineStartedAt = Date.now();
@@ -1379,7 +1385,9 @@ export function analyzeProject(
 
   const scan = scanProject(root, { limits: scanLimits || {} });
   const current = compactSnapshot(scan, identity, changeFingerprint);
-  const scoringPolicy = scoringPolicyIdentity(decisionPolicy);
+  const baseScoringPolicy=scoringPolicyIdentity(decisionPolicy);
+  const scoringPolicy={...baseScoringPolicy,
+    key:baseScoringPolicy.key+monitorPolicyFingerprint(enabledMonitors)};
   current.scoringPolicy = scoringPolicy;
 
   const trendStartedAt = Date.now();
@@ -1393,7 +1401,7 @@ export function analyzeProject(
   const findingsComparable = state.findings?.evidenceVersion === current.evidenceVersion &&
     (state.findings?.scoringPolicyKey || "local-v1") === scoringPolicy.key;
   const comparablePreviousFindings = findingsComparable ? state.findings?.items || {} : {};
-  const findings = buildFindings(identity.id, current, previous, intent, root, decisionPolicy).map(f => {
+  const findings = buildFindings(identity.id, current, previous, intent, root, decisionPolicy,enabledMonitors).map(f => {
     const base = { ...f, requiresAttention: stageRank(f.stage) >= 3, userFacing: plainFinding(f) };
     return enrichFindingIntelligence(base, comparablePreviousFindings[f.id], intent, current.capturedAt, {persist});
   });
@@ -1478,7 +1486,7 @@ export function analyzeProject(
 export function readCachedAnalysis(
   inputPath = process.cwd(),
   changeFingerprint = null,
-  { projectRoot = null, identity: precomputedIdentity = null, decisionPolicy = null } = {}
+  { projectRoot = null, identity: precomputedIdentity = null, decisionPolicy = null, enabledMonitors = null } = {}
 ) {
   const root = projectRoot || findProjectRoot(inputPath);
   const identity = precomputedIdentity || projectIdentity(root);
@@ -1486,7 +1494,7 @@ export function readCachedAnalysis(
   const latest = state.latest;
   if (!latest) return null;
   if (latest.evidenceVersion !== EVIDENCE_VERSION) return null;
-  if ((latest.scoringPolicy?.key || "local-v1") !== scoringPolicyIdentity(decisionPolicy).key) return null;
+  if ((latest.scoringPolicy?.key || "local-v1") !== scoringPolicyIdentity(decisionPolicy).key+monitorPolicyFingerprint(enabledMonitors)) return null;
   if (!changeFingerprint || latest.project?.changeFingerprint !== changeFingerprint) return null;
 
   const findings = Object.values(state.findings?.items || {});

@@ -71,6 +71,13 @@ export function sanitizeDecisionPolicy(input) {
   });
 }
 
+// A signed remote Monitor mask is part of evidence comparability, never
+// interchangeable with all-on history. Missing or all-on masks keep local-v1.
+export function monitorPolicyFingerprint(enabledMonitors=null){
+ const disabled=POLICY_V2_FAMILIES.filter(name=>enabledMonitors?.[name]===false);
+ return disabled.length?":monitors-"+crypto.createHash("sha256").update(disabled.join("|")).digest("hex").slice(0,12):"";
+}
+
 export function scoringPolicyIdentity(decisionPolicy) {
   const p = sanitizeDecisionPolicy(decisionPolicy);
   if (!p) return { key: LOCAL_SCORING_POLICY_KEY, source: "local-default", schemaVersion: 1 };

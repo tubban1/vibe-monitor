@@ -508,7 +508,7 @@ export function telemetryStatus() {
       dataIntelligenceDecision: config.dataIntelligenceDecision || null,
       installationId: identity?.installationId || null,
       queuedEvents: queueCount(), queuedSegmentCount: 0, ...telemetryQueueAge(),
-      syncDiagnostics: null, cloudTransportConfigured: false, queueFile: telemetryQueueFile() };
+      syncDiagnostics: safeJsonRead(path.join(telemetryDir(),"sync-state.json"),null), cloudTransportConfigured: false, queueFile: telemetryQueueFile() };
   }
   const config = readConfig();
   const identity = safeJsonRead(identityFile(), null);

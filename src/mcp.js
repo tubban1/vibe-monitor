@@ -153,7 +153,7 @@ export function buildAgentResult(result, { sessionStart = false, attentionFilter
 }
 
 
-function applyMonitoringPolicy(result, policy = {}) {
+export function applyMonitoringPolicy(result, policy = {}) {
   const enabled = policy.enabledMonitors || {};
   const isEnabled = family => enabled[family] !== false;
   const findings = result.findings.filter(finding => isEnabled(finding.family));

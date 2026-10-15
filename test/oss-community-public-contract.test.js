@@ -98,6 +98,39 @@ test("Unified signed cloud strategy stays in memory without telemetry",{
  assert.match(dist,/fetchCommunityCloudPolicy/);
 });
 
+test("Free signed Monitor flags control enabled detectors; offline default remains 13 ON",async()=>{
+ const {generateKeyPairSync,sign}=await import("node:crypto");
+ const {verifyCommunityPolicyEnvelope,COMMUNITY_SAFE_POLICY}=await import("../src/community-cloud-policy.js");
+ const pair=generateKeyPairSync("ed25519",{publicKeyEncoding:{type:"spki",format:"pem"},privateKeyEncoding:{type:"pkcs8",format:"pem"}});
+ const now=Date.UTC(2026,9,15,0);
+ const payload={schemaVersion:1,audience:"vibe-monitor-community",revision:1,
+  issuedAt:Math.floor(now/1000),expiresAt:Math.floor(now/1000)+3600,
+  config:{enabledMonitors:{"ai-drift":false}}};
+ const envelope={payload,keyId:"community-ed25519-v1",signature:sign(null,Buffer.from(JSON.stringify(payload)),pair.privateKey).toString("base64url")};
+ const verified=verifyCommunityPolicyEnvelope(envelope,{publicKeyPem:pair.publicKey,now:()=>now});
+ assert.equal(verified.config.enabledMonitors["ai-drift"],false);
+ assert.equal(verified.config.enabledMonitors["code-structure"],true);
+ assert.ok(Object.values(COMMUNITY_SAFE_POLICY.config.enabledMonitors).every(Boolean));
+});
+test("independent signed stable update manifest accepts only pinned release metadata",async()=>{
+ const {verifyFreeUpdateEnvelope,FREE_UPDATE_KEY_ID,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM}=await import("../src/update.js");
+ const keys=crypto.generateKeyPairSync("ed25519",{publicKeyEncoding:{type:"spki",format:"pem"},
+  privateKeyEncoding:{type:"pkcs8",format:"pem"}});
+ const now=Date.UTC(2026,9,16,12),issuedAt=Math.floor(now/1000);
+ const payload={schemaVersion:1,audience:"vibe-monitor-free-update-v1",revision:7,
+  issuedAt,expiresAt:issuedAt+3600,version:"1.0.0",rolloutPercent:100,
+  rolloutSalt:"stable-20261016",artifact:{
+   url:"https://registry.npmjs.org/@vibe-monitor/setup/-/setup-1.0.0.tgz",sha256:"a".repeat(64)}};
+ const sign=pl=>({keyId:FREE_UPDATE_KEY_ID,payload:pl,
+  signature:crypto.sign(null,Buffer.from(JSON.stringify(pl)),keys.privateKey).toString("base64url")});
+ const verify=(e)=>verifyFreeUpdateEnvelope(e,{keys:{[FREE_UPDATE_KEY_ID]:keys.publicKey},now:()=>now});
+ assert.equal(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,null);
+ assert.equal(verifyFreeUpdateEnvelope(sign(payload),{now:()=>now}),null);
+ assert.equal(verify(sign(payload)).version,"1.0.0");
+ const forged=sign(payload);forged.payload={...payload,artifact:{...payload.artifact,sha256:"b".repeat(64)}};
+ assert.equal(verify(forged),null);
+ assert.equal(verify(sign({...payload,artifact:{...payload.artifact,url:"https://other.example/evil.tgz"}})),null);
+});
 test("offline preload uses a file URL, never a Windows drive path",()=>{
  const smoke=fs.readFileSync(path.join(root,"test/oss-community-public-smoke.test.js"),"utf8");
  assert.match(smoke,/pathToFileURL\(block\)\.href/);

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { analyzeProject, readCachedAnalysis } from "./engine.js";
-import { scoringPolicyIdentity } from "./decision-policy.js";
+import { scoringPolicyIdentity,monitorPolicyFingerprint } from "./decision-policy.js";
 import { ScanBudgetExceededError } from "./scanner.js";
 import { findProjectRoot, projectChangeFingerprint, projectIdentity } from "./project.js";
 import { intentRevision } from "./intent.js";
@@ -85,7 +85,7 @@ export function createMonitoringBudgetSession({ scanLimits = null } = {}) {
     const intentRevisionMs = Date.now() - intentRevisionStartedAt;
 
     const decisionPolicy = policy.decisionPolicy || null;
-    const policyKey = scoringPolicyIdentity(decisionPolicy).key;
+    const policyKey = scoringPolicyIdentity(decisionPolicy).key+monitorPolicyFingerprint(policy.enabledMonitors);
     const fingerprint = projectFingerprint
       ? projectFingerprint + ":" + revision + (policyKey === "local-v1" ? "" : ":" + policyKey)
       : null;
@@ -197,7 +197,8 @@ export function createMonitoringBudgetSession({ scanLimits = null } = {}) {
     const diskCached = readCachedAnalysis(root, fingerprint, {
       projectRoot: root,
       identity,
-      decisionPolicy
+      decisionPolicy,
+      enabledMonitors:policy.enabledMonitors
     });
     const cacheReadMs = Date.now() - cacheStartedAt;
     if (diskCached) {
@@ -233,7 +234,8 @@ export function createMonitoringBudgetSession({ scanLimits = null } = {}) {
         projectRoot: root,
         identity,
         scanLimits,
-        decisionPolicy
+        decisionPolicy,
+        enabledMonitors:policy.enabledMonitors
       });
     } catch (error) {
       if (!(error instanceof ScanBudgetExceededError)) throw error;

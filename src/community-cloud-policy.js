@@ -88,7 +88,7 @@ export function verifyCommunityPolicyEnvelope(e,{publicKeyPem,publicKeysById=nul
     fullScanMinIntervalSec:Math.max(300,bounded.fullScanMinIntervalSec),
     maxNoticesPerSession:Math.min(2,bounded.maxNoticesPerSession),
     unchangedNoticeReminderHours:bounded.unchangedNoticeReminderHours,
-    enabledMonitors:TRUE_FAMILIES,decisionPolicy:bounded.decisionPolicy}};
+    enabledMonitors:Object.freeze({...TRUE_FAMILIES,...raw.enabledMonitors}),decisionPolicy:bounded.decisionPolicy}};
  }catch{return null;}
 }
 

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { classifyNetworkError, networkErrorCode } from "./install-network.js";
-import { ensureDir, safeJsonRead, vibeHome } from "./utils.js";
+import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import {
   acknowledgeTelemetryEvents,
   readTelemetryBatch,
@@ -578,7 +578,7 @@ export async function reportLifecycleEvent(event, details = {}) {
 // Keep off until endpoint, region, retention and privacy QA are authorized.
 export const FREE_TELEMETRY_UPLOAD_ENABLED = false;
 const FREE_TELEMETRY_URL = "https://vibe-api.fde.fan/free/telemetry";
-export async function syncFreeTelemetry({fetchImpl=globalThis.fetch}={}) {
+async function syncFreeTelemetryOnce({fetchImpl=globalThis.fetch}={}) {
  if(!isOpenClientDistribution())return {uploaded:0,reason:"private_beta_mode"};
  if(!telemetryStatus().enabled)return {uploaded:0,reason:"telemetry_off"};
  if(!FREE_TELEMETRY_UPLOAD_ENABLED)return {uploaded:0,reason:"free_intake_not_released"};
@@ -603,6 +603,37 @@ export async function syncFreeTelemetry({fetchImpl=globalThis.fetch}={}) {
   acknowledgeTelemetryEvents(batch.map(e=>e.eventId));
   return {uploaded:data.accepted,duplicates:data.duplicates};
  }catch{return {uploaded:0,reason:"network_or_invalid_response"};}
+}
+
+// Free transport follows independent bounded retry diagnostics; never uses Beta credentials.
+// Cross-process retry state prevents bursts from short-lived CLI/Agent MCP processes.
+const freeSyncPath=()=>path.join(vibeHome(),"free-telemetry","sync-state.json");
+let freeSyncInFlight=null;
+export function freeSyncBackoffMs(attempt,entropy=0){
+ const n=Math.max(1,Math.min(9,Math.trunc(Number(attempt)||1)));
+ return Math.min(300000,3000*2**(n-1))+Math.max(0,Math.min(3000,Math.trunc(Number(entropy)||0)));
+}
+export async function syncFreeTelemetry({fetchImpl=globalThis.fetch,force=false,now=Date.now}={}){
+ if(!isOpenClientDistribution())return {uploaded:0,reason:"private_beta_mode"};
+ if(!telemetryStatus().enabled)return {uploaded:0,reason:"telemetry_off"};
+ if(!FREE_TELEMETRY_UPLOAD_ENABLED)return {uploaded:0,reason:"free_intake_not_released"};
+ if(freeSyncInFlight)return freeSyncInFlight;
+ const state=safeJsonRead(freeSyncPath(),{attempt:0,nextRetryAt:0});
+ const next=Number(state?.nextRetryAt)||0;
+ if(!force&&Number.isFinite(next)&&next>now()&&next-now()<=86400_000)return {uploaded:0,reason:"retry_backoff",nextRetryAt:new Date(next).toISOString()};
+ freeSyncInFlight=(async()=>{
+  const result=await syncFreeTelemetryOnce({fetchImpl});
+  const failed=new Set(["cloud_unavailable","network_or_invalid_response","invalid_ack","batch_too_large"]);
+  const attempts=failed.has(result.reason)?Math.min(9,(Number(state?.attempt)||0)+1):0;
+  const nextRetryAt=attempts?now()+freeSyncBackoffMs(attempts,crypto.randomInt(0,3001)):0;
+  try{
+   atomicJsonWrite(freeSyncPath(),{attempt:attempts,nextRetryAt,
+    lastResult:failed.has(result.reason)?"retry_scheduled":result.reason||"ok",
+    lastAttemptAt:new Date(now()).toISOString()});
+  }catch{/* transport results remain honest even when diagnostics cannot be persisted */}
+  return {...result,...(attempts?{nextRetryAt:new Date(nextRetryAt).toISOString()}:{})};
+ })();
+ try{return await freeSyncInFlight;}finally{freeSyncInFlight=null;}
 }
 
 export async function syncTelemetry({ limit = 100, respectBackoff = false } = {}) {
