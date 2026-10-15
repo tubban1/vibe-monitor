@@ -8,7 +8,7 @@ import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PU
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
 import {buildAgentResult} from "../src/mcp.js";
-import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
+import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
 test("Windows native archive fallback accepts missing module only, never safety-denied errors",async()=>{
@@ -197,6 +197,61 @@ test("Free V4 wire never forwards raw project, prompt, token or nested intellige
  assert.deepEqual(rows[0].payload,{sourceFilesBucket:"21-50",totalLocBucket:"501-1000"});
  assert.doesNotMatch(JSON.stringify(rows),/raw user message|placeholder|const secret|private\/source|architectureProfile/);
 });
+test("Free commercial signal retains HMAC join keys but strips notes, paths and source",{skip:!staged?"OSS-only linked wire":false},()=>{
+ const sessionId=crypto.randomUUID(),callId=crypto.randomUUID(),scanId=crypto.randomUUID();
+ const input={schemaVersion:4,eventId:crypto.randomUUID(),installationId:crypto.randomUUID(),
+  event:"outcome.action",at:new Date().toISOString(),projectId:"a".repeat(32),
+  findingId:"b".repeat(32),family:"code-structure",sessionId,callId,scanId,
+  evidenceVersion:7,policyRevision:2,agent:"codex",stage:"S4",
+  payload:{outcomeRef:"c".repeat(32),disposition:"applied",actor:"user",
+   outcomeStatus:"waiting_followup",note:"private note",rawSource:"const PASSWORD=secret",
+   changeRef:"abcdef012345"}};
+ const [projected]=freeTelemetryWireBatch([input]);
+ assert.equal(projected.findingId,"b".repeat(32));
+ assert.equal(projected.family,"code-structure");
+ assert.equal(projected.sessionId,sessionId);
+ assert.equal(projected.callId,callId);
+ assert.equal(projected.scanId,scanId);
+ assert.equal(projected.evidenceVersion,7);
+ assert.equal(projected.policyRevision,2);
+ assert.equal(projected.payload.outcomeRef,"c".repeat(32));
+ assert.equal(projected.payload.actor,"user");
+ assert.equal(projected.payload.disposition,"applied");
+ assert.doesNotMatch(JSON.stringify(projected),/private note|PASSWORD|abcdef012345|rawSource|changeRef/);
+});
+test("Free explicit outcome action and verification queue stable anonymous links with no additional scan",{skip:!staged?"OSS-only HMAC outcome":false},t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-free-outcome-"));
+ const keys=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"],prior=keys.map(k=>process.env[k]);
+ process.env.VIBE_MONITOR_HOME=root;
+ process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(root,"secrets");
+ t.after(()=>{keys.forEach((k,i)=>{if(prior[i]===undefined)delete process.env[k];else process.env[k]=prior[i];});
+   fs.rmSync(root,{recursive:true,force:true});});
+ assert.equal(initializeFreeTelemetry().enabled,true);
+ const record={outcomeId:crypto.randomUUID(),findingId:"VM-SECRET123",family:"code-structure",
+  baseline:{stage:"S4",evidenceVersion:7},action:{disposition:"applied",actor:"user",changeRef:"private-sha"},
+  verification:{verdict:"confirmed",evidenceType:"independent_review",actor:"user"},
+  status:"user_confirmed_with_observed_improvement"};
+ const input={projectId:"private/project",record,agent:"codex",sessionId:crypto.randomUUID(),policyRevision:2};
+ assert.equal(enqueueOutcomeTelemetry({...input,kind:"action"}),true);
+ assert.equal(enqueueOutcomeTelemetry({...input,kind:"action"}),true);
+ assert.equal(enqueueOutcomeTelemetry({...input,kind:"verification"}),true);
+ assert.equal(enqueueOutcomeTelemetry({...input,kind:"verification"}),true);
+ const projected=freeTelemetryWireBatch(readTelemetryBatch({limit:12}));
+ assert.equal(projected.length,4);
+ assert.deepEqual(projected.map(e=>e.event),["outcome.action","outcome.action","outcome.verification","outcome.verification"]);
+ assert.equal(projected[0].eventId,projected[1].eventId);
+ assert.equal(projected[2].eventId,projected[3].eventId);
+ assert.notEqual(projected[0].eventId,record.outcomeId);
+ assert.notEqual(projected[0].eventId,projected[2].eventId);
+ assert.equal(projected[0].findingId,projected[2].findingId);
+ assert.equal(projected[0].payload.outcomeRef,projected[2].payload.outcomeRef);
+ assert.equal(projected[2].payload.verificationVerdict,"confirmed");
+ const sent=JSON.stringify(projected);
+ assert.doesNotMatch(sent,/private\/project|VM-SECRET123|private-sha|source|rawSource|notes/);
+ assert.equal(setTelemetryEnabled(false).enabled,false);
+ assert.equal(readTelemetryBatch({limit:12}).length,0);
+ assert.equal(enqueueOutcomeTelemetry({...input,kind:"action"}),false);
+});
 test("Free tiny offline queue expires at seven days and opt-out blocks later events",{
  skip:!staged?"OSS-only queue expiry contract":false
 },t=>{
@@ -220,8 +275,11 @@ test("Free tiny offline queue expires at seven days and opt-out blocks later eve
  assert.ok(fs.statSync(file).size<256*1024);
  assert.deepEqual(readTelemetryBatch({limit:10}).map(e=>e.eventId),[fresh.eventId]);
  assert.doesNotMatch(fs.readFileSync(file,"utf8"),new RegExp(stale.eventId));
+ const segment=path.join(root,"free-telemetry","queue-segment-1730000000000-abcdef123456.jsonl");
+ fs.writeFileSync(segment,JSON.stringify({eventId:crypto.randomUUID(),event:"checkpoint"})+"\n");
  assert.equal(setTelemetryEnabled(false).enabled,false);
  assert.equal(fs.existsSync(file),false);
+ assert.equal(fs.existsSync(segment),false,"opt-out erases all pending Free queue segments");
  enqueueActivityTelemetry({event:"checkpoint",sessionId:crypto.randomUUID(),agent:"codex"});
  assert.equal(fs.existsSync(file),false);
  assert.equal(fs.readFileSync(path.join(legacy,"config.json"),"utf8"),state);

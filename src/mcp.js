@@ -29,7 +29,7 @@ import {
   persistArchitectureReviewRequest,
   persistArchitectureReviewResponse
 } from "./architecture-review.js";
-import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry } from "./telemetry.js";
+import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTelemetry } from "./telemetry.js";
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution, resolveDistributionPolicy } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
@@ -888,7 +888,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     });
   });
 
-  // Outcomes stay on this computer. No additional Cloud event or source excerpts.
+  // Outcome records stay local; only approved, bounded anonymous enum summaries may queue for Free telemetry.
   function outcomeProject(pathValue) {
     const identity = projectIdentity(findProjectRoot(pathValue || process.cwd()));
     return { identity, state: loadState(identity.id) };
@@ -913,10 +913,14 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     const finding = state.findings?.items?.[id];
     if (!finding) return textResult({error:"finding_not_found_in_saved_snapshot",id});
     try {
-      return textResult({recorded:true,...recordOutcomeAction(identity.id,finding,{
+      const record=recordOutcomeAction(identity.id,finding,{
         disposition,actor,changeRef:changeRef||null,submissionId:submissionId||null,
         evidenceVersion:state.latest.evidenceVersion
-      })});
+      });
+      try{if(enqueueOutcomeTelemetry({kind:"action",projectId:identity.id,repoId:identity.repoId,
+        projectInstanceId:identity.projectInstanceId,sessionId,agent,record,
+        policyRevision:state.latest?.scoringPolicy?.revision}))syncCloudBestEffort();}catch{}
+      return textResult({recorded:true,...record});
     } catch(error) {return textResult({recorded:false,error:error.message});}
   });
 
@@ -932,9 +936,14 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   }, async ({path,outcomeId,verdict,evidenceType,actor}) => {
     const remote = await resolveDistributionPolicy({fetchPolicy:fetchRemotePolicy});
     if (remote.enabled === false) return textResult(disabledPayload(remote));
-    const {identity} = outcomeProject(path);
-    try {return textResult({recorded:true,...recordOutcomeVerification(identity.id,outcomeId,{verdict,evidenceType,actor})});}
-    catch(error) {return textResult({recorded:false,error:error.message});}
+    const {identity,state} = outcomeProject(path);
+    try {
+      const record=recordOutcomeVerification(identity.id,outcomeId,{verdict,evidenceType,actor});
+      try{if(enqueueOutcomeTelemetry({kind:"verification",projectId:identity.id,repoId:identity.repoId,
+        projectInstanceId:identity.projectInstanceId,sessionId,agent,record,
+        policyRevision:state.latest?.scoringPolicy?.revision}))syncCloudBestEffort();}catch{}
+      return textResult({recorded:true,...record});
+    }catch(error){return textResult({recorded:false,error:error.message});}
   });
 
   server.registerTool("vibe_outcome_status", {
@@ -958,37 +967,29 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   }, async ({ id, verdict, note, path }) => {
     const callStartedAt = Date.now();
     const callId = crypto.randomUUID();
-    const { result, disabled, disabledPayload } = await analyzeWithPolicy(path, {
-      persist: false,
-      kind: "feedback",
-      callId
+    // Feedback must never trigger a new project scan: a saved finding snapshot
+    // is sufficient. Free uses the local policy; private Beta still respects
+    // its normal remote service-control state.
+    const remote=await resolveDistributionPolicy({fetchPolicy:fetchRemotePolicy});
+    if(remote.enabled===false)return textResult(buildDisabledPolicyPayload(remote));
+    const {identity,state}=outcomeProject(path);
+    const finding=state.findings?.items?.[id]||null;
+    const telemetryStartedAt=Date.now();
+    const item=appendFeedback({
+      agent,sessionId,callId,scanId:null,
+      projectId:identity.id,repoId:identity.repoId||null,
+      projectInstanceId:identity.projectInstanceId||identity.id,
+      findingId:id,family:finding?.family||null,stage:finding?.stage||null,
+      actionMode:actionModeForFinding(finding),verdict,note:note||null
     });
-    if (disabled) return textResult(disabledPayload);
-    const finding = result.findings.find(f => f.id === id) || null;
-    const telemetryStartedAt = Date.now();
-    const item = appendFeedback({
-      agent,
-      sessionId,
-      callId,
-      scanId: result.monitoring?.scanId || null,
-      projectId: result.project.id,
-      repoId: result.project.repoId || null,
-      projectInstanceId: result.project.projectInstanceId || result.project.id,
-      findingId: id,
-      family: finding?.family || null,
-      stage: finding?.stage || null,
-      actionMode: actionModeForFinding(finding),
-      verdict,
-      note: note || null
-    });
-    recordActivity("feedback", { agent, result, finding, callId });
-    completeCall({
-      callId,
-      toolEvent: "feedback",
-      result,
-      callStartedAt,
-      telemetryStartedAt
-    });
+    // This is an interaction event, not a fabricated new architecture scan.
+    try{
+      enqueueCallCompletedTelemetry({agent,projectId:identity.id,repoId:identity.repoId,
+        projectInstanceId:identity.projectInstanceId,sessionId,callId,scanId:null,
+        toolEvent:"feedback",toolMs:Date.now()-callStartedAt,
+        telemetryQueueMs:Date.now()-telemetryStartedAt,result:null});
+      syncCloudBestEffort();
+    }catch{}
     return textResult({
       recorded: true,
       verdict: item.verdict,

@@ -354,7 +354,10 @@ function baseEvent(eventName, projectId = null, findingId = null, context = {}, 
     callId: context.callId || null,
     scanId: context.scanId || null,
     clientVersion: CLIENT_VERSION,
-    evidenceVersion: EVIDENCE_VERSION
+    evidenceVersion: EVIDENCE_VERSION,
+    ...(isOpenClientDistribution() && Number.isSafeInteger(context.policyRevision) &&
+       context.policyRevision >= 1 && context.policyRevision <= 1000000
+       ? {policyRevision: context.policyRevision} : {})
   };
 }
 
@@ -407,8 +410,11 @@ export function setTelemetryEnabled(enabled) {
         enabled: Boolean(enabled), consentVersion: "free-v1",
         updatedAt: new Date().toISOString() });
       if (!enabled) {
-        try { fs.rmSync(telemetryQueueFile(), {force:true}); } catch {}
-        segmentLineCountCache.delete(telemetryQueueFile());
+        // Opt-out clears every pending Free segment, not just the active file.
+        for(const file of telemetryQueueFiles()){
+          try{fs.rmSync(file,{force:true});}catch{}
+          segmentLineCountCache.delete(file);
+        }
       }
     });
     return telemetryStatus();
@@ -562,7 +568,8 @@ export function enqueueActivityTelemetry(activityItem, transitions = [], result 
     callId: activityItem.callId || null,
     scanId: activityItem.scanId || result?.monitoring?.scanId || null,
     repoId: activityItem.repoId || result?.project?.repoId || null,
-    projectInstanceId: activityItem.projectInstanceId || result?.project?.projectInstanceId || activityItem.projectId || null
+    projectInstanceId: activityItem.projectInstanceId || result?.project?.projectInstanceId || activityItem.projectId || null,
+    policyRevision: result?.scoringPolicy?.revision ?? null
   };
   // Reuse one config read across all observation events in this batch.
   const telemetryConfig = readConfig();
@@ -740,6 +747,42 @@ export function enqueueFeedbackTelemetry(feedbackItem) {
   return true;
 }
 
+// Explicit Outcome reports: send only bounded enums and HMAC-linked IDs.
+// No source, change reference, prompt, note or project name leaves this device.
+export function enqueueOutcomeTelemetry({kind,projectId,repoId=null,projectInstanceId=null,
+ sessionId=null,agent="unknown",record,policyRevision=null}={}) {
+ if(!isOpenClientDistribution()||!["action","verification"].includes(kind)||
+    !record?.outcomeId||!record?.findingId||!record?.action)return false;
+ const data=kind==="verification"?record.verification:record.action;
+ if(!data)return false;
+ const actor=safeEnum(data.actor,16),disposition=safeEnum(record.action.disposition,24);
+ if(!["user","agent"].includes(actor)||!["applied","deferred","dismissed"].includes(disposition))return false;
+ const verdict=kind==="verification"?safeEnum(data.verdict,32):null;
+ const evidenceType=kind==="verification"?safeEnum(data.evidenceType,32):null;
+ if(kind==="verification"&&(!["confirmed","not_confirmed","inconclusive"].includes(verdict)||
+    !["regression_test","independent_review","manual_review"].includes(evidenceType)))return false;
+ const base=baseEvent("outcome."+kind,projectId,record.findingId,{
+    sessionId,repoId,projectInstanceId:projectInstanceId||projectId,policyRevision});
+ if(!base)return false;
+ // A repeated idempotent action/verification keeps its first event ID.
+ // Even the source-local UUID is never directly used as a wire identifier.
+ const seed=kind==="action"?record.outcomeId+":action":
+   [record.outcomeId,verdict,evidenceType,actor].join(":");
+ const bytes=Buffer.from(crypto.createHash("sha256").update("vibe-outcome-v1:"+seed).digest().subarray(0,16));
+ bytes[6]=(bytes[6]&15)|80;bytes[8]=(bytes[8]&63)|128;
+ const h=bytes.toString("hex");
+ const eventId=h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);
+ const identity=ensureIdentity();
+ appendQueue({...base,eventId,agent,family:record.family||null,
+   stage:record.baseline?.stage||null,
+   evidenceVersion:record.baseline?.evidenceVersion||EVIDENCE_VERSION,
+   payload:{outcomeRef:pseudonym(identity.secret,record.outcomeId),
+     disposition,actor,
+     ...(verdict?{verificationVerdict:verdict,evidenceType}:{}),
+     outcomeStatus:safeEnum(record.status,48)}});
+ return true;
+}
+
 export function enqueueCallCompletedTelemetry({
   agent = "unknown",
   projectId,
@@ -796,7 +839,8 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
   "product_intent","product_intent_set","architecture_review_requested","feedback",
   "call.completed","scan.observed","finding.observed","notice.surfaced","notice.suppressed",
   "finding.new_attention","finding.worsened","finding.improved","feedback.useful",
-  "feedback.false_positive","feedback.too_early","feedback.too_late","feedback.confusing"]);
+  "feedback.false_positive","feedback.too_early","feedback.too_late","feedback.confusing",
+  "outcome.action","outcome.verification"]);
  const enumValue=v=>typeof v==="string"&&/^[a-z0-9_.:-]{1,48}$/i.test(v)?v:null;
  return events.slice(0,12).map(e=>{
   if(!e||e.schemaVersion!==4||!valid.has(e.event)||
@@ -805,7 +849,8 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
   const payload={};
   for(const k of ["reason","mode","sourceFilesBucket","totalLocBucket",
    "productionDependenciesBucket","testFilesBucket","actionMode","verdict",
-   "currentActionMode","transitionType","toolEvent"]){
+   "currentActionMode","transitionType","toolEvent",
+   "disposition","actor","evidenceType","verificationVerdict","outcomeStatus"]){
    const v=enumValue(e.payload?.[k]);if(v!==null)payload[k]=v;
   }
   for(const k of ["durationMs","wallTimeMs","fullScanCount","cachedCheckCount",
@@ -816,9 +861,17 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
   }
   if(typeof e.payload?.projectChanged==="boolean")
    payload.projectChanged=e.payload.projectChanged;
+  if(/^[a-f0-9]{32}$/i.test(e.payload?.outcomeRef||""))
+   payload.outcomeRef=e.payload.outcomeRef;
+  const boundedUuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value||"")?value:null;
+  const boundedPseudonym=value=>/^[a-f0-9]{32}$/i.test(value||"")?value:null;
+  const boundedInt=value=>Number.isSafeInteger(value)&&value>=1&&value<=1000000?value:null;
   const out={schemaVersion:4,eventId:e.eventId,installationId:e.installationId,
    event:e.event,at:e.at,clientVersion:CLIENT_VERSION,
-   projectId:/^[a-f0-9]{32}$/i.test(e.projectId||"")?e.projectId:null,
+   projectId:boundedPseudonym(e.projectId),findingId:boundedPseudonym(e.findingId),
+   sessionId:boundedUuid(e.sessionId),callId:boundedUuid(e.callId),scanId:boundedUuid(e.scanId),
+   family:enumValue(e.family),evidenceVersion:boundedInt(e.evidenceVersion),
+   policyRevision:boundedInt(e.policyRevision),
    agent:enumValue(e.agent),stage:enumValue(e.stage),payload};
   return Buffer.byteLength(JSON.stringify(out))<=4096?out:null;
  }).filter(Boolean);
