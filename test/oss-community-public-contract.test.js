@@ -6,6 +6,7 @@ import path from "node:path";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
+import {readBoundedUpdateArtifact} from "../src/update.js";
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
 test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{
@@ -103,6 +104,27 @@ test("signed strategy stream fails closed on excess zero-byte fragments",async()
    }}})});
  assert.equal(result.source,"local-baseline");
  assert.ok(chunks<=4097,"streaming read must stop at the chunk limit");
+});
+test("update artifact stream accepts normal bytes without relying on Content-Length",async()=>{
+ const response=new Response(new Uint8Array([11,22,33]),{headers:{"content-length":"0"}});
+ assert.deepEqual([...await readBoundedUpdateArtifact(response)],[11,22,33]);
+});
+test("update artifact downloader rejects dishonest oversized length and excessive fragments",async()=>{
+ let reads=0,cancels=0,unlocks=0;
+ const makeResponse=(contentLength)=>({
+  headers:{get:()=>contentLength},
+  body:{getReader:()=>({
+   async read(){reads++;return {done:false,value:new Uint8Array(0)};},
+   async cancel(){cancels++;},
+   releaseLock(){unlocks++;}
+  })}
+ });
+ await assert.rejects(readBoundedUpdateArtifact(makeResponse(String(25*1024*1024+1))),/update_artifact_too_large/);
+ assert.equal(reads,0);
+ await assert.rejects(readBoundedUpdateArtifact(makeResponse(null)),/update_download_failed:too_many_chunks/);
+ assert.equal(reads,4097);
+ assert.equal(cancels,2);
+ assert.equal(unlocks,2);
 });
 test("Node source is pinned to the official artifact URL",()=>{
  const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};

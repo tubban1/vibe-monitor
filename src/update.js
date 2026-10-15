@@ -21,6 +21,7 @@ import {
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 
 const MAX_UPDATE_ARTIFACT_BYTES = 25 * 1024 * 1024;
+const MAX_UPDATE_STREAM_CHUNKS = 4096;
 const UPDATE_LOCK_STALE_MS = 30 * 60 * 1000;
 let autoUpdateScheduled = false;
 
@@ -185,9 +186,47 @@ async function fetchArtifact(url) {
   if (Number.isFinite(declared) && declared > MAX_UPDATE_ARTIFACT_BYTES) {
     throw new Error("update_artifact_too_large");
   }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > MAX_UPDATE_ARTIFACT_BYTES) throw new Error("update_artifact_too_large");
-  return bytes;
+  return readBoundedUpdateArtifact(response);
+}
+
+/**
+ * Read update archives with a hard in-memory cap, even if Content-Length is
+ * absent or dishonest. A single fixed allocation avoids retaining unbounded
+ * arrays of tiny streamed chunks.
+ */
+export async function readBoundedUpdateArtifact(response) {
+  const reader = response.body?.getReader?.();
+  if (!reader) throw new Error("update_download_failed:missing_stream");
+  const declared = Number(response.headers?.get?.("content-length") || 0);
+  if (Number.isFinite(declared) && declared > MAX_UPDATE_ARTIFACT_BYTES) {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+    throw new Error("update_artifact_too_large");
+  }
+
+  let bytes = null;
+  let length = 0;
+  let chunks = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (++chunks > MAX_UPDATE_STREAM_CHUNKS) throw new Error("update_download_failed:too_many_chunks");
+      if (!(value instanceof Uint8Array)) throw new Error("update_download_failed:invalid_chunk");
+      if (value.byteLength > MAX_UPDATE_ARTIFACT_BYTES - length) {
+        throw new Error("update_artifact_too_large");
+      }
+      if (!bytes) bytes = Buffer.allocUnsafe(MAX_UPDATE_ARTIFACT_BYTES);
+      bytes.set(value, length);
+      length += value.byteLength;
+    }
+    return bytes ? Buffer.from(bytes.subarray(0, length)) : Buffer.alloc(0);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export async function updateStatus({ refresh = false } = {}) {
