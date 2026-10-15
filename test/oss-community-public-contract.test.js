@@ -61,6 +61,11 @@ test("single client dependency lock has reviewed SPDX license categories",{
  }
  const notice=fs.readFileSync(path.join(root,"NOTICE"),"utf8");
  assert.match(notice,/Transitive npm dependencies/i);
+ for(const name of direct){
+  const locked=lock.packages["node_modules/"+name];
+  assert.ok(notice.includes(`${name} ${locked.version} — ${locked.license}`),
+   "NOTICE requires direct dependency version/license attribution: "+name);
+ }
 });
 test("Unified signed cloud strategy stays in memory without telemetry",{
  skip:!staged?"only runs after source-only OSS staging":false
