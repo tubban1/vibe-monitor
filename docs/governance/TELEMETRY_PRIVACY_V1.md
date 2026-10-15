@@ -7,6 +7,27 @@ Date: 2026-10-07
 
 Vibe Monitor analyzes project source locally. Default private-Beta telemetry does **not** upload source code, diffs, prompts, secrets, filenames or raw project paths. Cloud policy delivery is distinct from telemetry collection: Cloud sends architecture policies to the client, while the current Beta also sends bounded, pseudonymized architecture, usage, performance and outcome signals back to improve the product. Participation in this **current private Beta** requires disclosed telemetry; this is not a statement of future Free-plan terms. Inspect the exact queued payload with `vibe-monitor telemetry inspect` before participating.
 
+## Upcoming Free/Pro/Team contract — not live in Beta.41
+
+The material below this section documents the currently published private
+Beta. For the unified client, Free analysis requires disclosed product-
+improvement telemetry. Turning telemetry off suspends Free analysis.
+The Free Cloud endpoint remains disabled until separate production QA.
+
+All accepted Free, Beta, Pro and Team Cloud history (pseudonymous usage,
+architecture evolution, recommendations, feedback and outcome verification)
+is intended for long-term preservation: no age-based Cloud TTL, scheduled
+deletion or automatic purge. Local logs, transient queues and caches may
+be cleaned independently for disk/performance purposes. Installation-HMAC
+identifiers remain pseudonymous personal data when linkable, not automatically
+anonymous. Legally required targeted erasure goes through an independently
+authorized, audited process.
+
+Current Neon production region: AWS Singapore (`aws-ap-southeast-1`).
+Applicable data-transfer safeguards, collection purposes, access controls,
+capacity/backup security and lawful-basis notices require review before
+enabling production Free ingestion. No production Free uploads are claimed.
+
 ## Purpose
 
 Private beta needs enough evidence to improve Vibe Monitor's decisions without turning Vibe into a source-code or conversation collection system.

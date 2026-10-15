@@ -49,8 +49,19 @@ The Free service requires product-improvement telemetry covering usage, performa
 
 On Free, `vibe-monitor telemetry off` **stops collection and architecture analysis**; `vibe-monitor telemetry on` restores both. `vibe-monitor telemetry inspect` shows queued events. Free installation and setup reject `--no-telemetry`. Local diagnostics and security inspection and uninstall remain accessible. Pro/Team entitlements require verified Cloud grants; this is not a self-declared premium bypass.
 
-**Not enabled in production:** This source audit still hard-disables Free Cloud uploads. Before official release, the disclosed data categories, lawful basis, regional handling, retention/deletion and any distinct purposes such as model training or sharing need independent legal review plus live technical acceptance. Requiring telemetry to use a service does not by itself establish legal consent.
+**Not enabled in production:** This source audit still hard-disables Free Cloud uploads. Before official release, the disclosed data categories, lawful basis, regional handling, long-term Cloud preservation, separately audited legally required erasure and any distinct purposes such as model training or sharing need independent legal review plus live technical acceptance. Requiring telemetry to use a service does not by itself establish legal consent.
 
+
+**Planned long-term Cloud policy for Free/Pro/Team:** accepted telemetry,
+architecture evolution, recommendations, feedback and outcome verification
+are preserved with no automatic Cloud TTL, scheduled deletion or age-based
+purge. Local logs, caches and unsent queues may be cleaned separately for
+performance and disk usage. Identifiers remain pseudonymous (not necessarily
+anonymous). Lawful scoped erasure is separately authorized and audited.
+The current Neon region is AWS Singapore (`aws-ap-southeast-1`), subject to
+appropriate international data-transfer notice and safeguards. This is
+a release design, not a claim that Free production collection is live or that
+legal/data-transfer review has been completed.
 
 ## What happens to your code and computer?
 
