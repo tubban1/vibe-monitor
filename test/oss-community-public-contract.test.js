@@ -10,6 +10,18 @@ import {readBoundedUpdateArtifact} from "../src/update.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,telemetryStatus,setTelemetryEnabled} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
+
+test("Windows native archive fallback accepts missing module only, never safety-denied errors",async()=>{
+ const {windowsArchiveCommandUnavailable}=await import("../src/platform.js");
+ const absent={stderr:"Expand-Archive: Microsoft.PowerShell.Archive",message:"CouldNotAutoloadMatchingModule"};
+ assert.equal(windowsArchiveCommandUnavailable(absent),true);
+ assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive: CommandNotFoundException"}),true);
+ assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive: PSSecurityException UnauthorizedAccess"}),false);
+ assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive: CommandNotFoundException PSSecurityException"}),false);
+ assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive archive corrupt"}),false);
+ assert.equal(windowsArchiveCommandUnavailable({stderr:"Expand-Archive: PermissionDenied"}),false);
+});
+
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
 test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{

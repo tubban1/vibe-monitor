@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -44,34 +45,40 @@ function backup(file) {
   return target;
 }
 function appendManagedBlock(file, content = INSTRUCTION) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  let existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  fs.mkdirSync(path.dirname(file), {recursive:true});
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
   const start = existing.indexOf(START);
   const end = existing.indexOf(END);
-
-  if (start >= 0 && end >= start) {
-    const current = existing.slice(start, end + END.length);
-    if (current === content) return { changed: false, file };
-    backup(file);
-    const updated = existing.slice(0, start) + content + existing.slice(end + END.length);
-    fs.writeFileSync(file, updated.endsWith("\n") ? updated : updated + "\n", "utf8");
-    return { changed: true, file, updated: true };
+  if ((start >= 0) !== (end >= 0) || (start >= 0 && end < start)) {
+    return {changed:false,file,manualRequired:true,error:"existing_instruction_marker_malformed"};
   }
-
+  if (start >= 0) {
+    const current = existing.slice(start,end+END.length);
+    // Do not claim or remove a matching block left by another Vibe distribution.
+    if (current === content) return {changed:false,file};
+    if (!isOwned(file,current)) return refuseConflict(file);
+    backup(file);
+    fs.writeFileSync(file,existing.slice(0,start)+content+existing.slice(end+END.length),"utf8");
+    markOwned(file,content);
+    return {changed:true,file,updated:true};
+  }
   backup(file);
   const sep = existing.length && !existing.endsWith("\n") ? "\n\n" : existing.length ? "\n" : "";
-  fs.writeFileSync(file, existing + sep + content + "\n", "utf8");
-  return { changed: true, file };
+  fs.writeFileSync(file,existing+sep+content+"\n","utf8");
+  markOwned(file,content);
+  return {changed:true,file};
 }
 function removeManagedBlock(file) {
   if (!fs.existsSync(file)) return false;
-  let text = fs.readFileSync(file, "utf8");
-  const start = text.indexOf(START);
-  const end = text.indexOf(END);
+  const original = fs.readFileSync(file,"utf8");
+  const start = original.indexOf(START);
+  const end = original.indexOf(END);
   if (start < 0 || end < start) return false;
+  const block = original.slice(start,end+END.length);
+  if (!isOwned(file,block)) return false;
   backup(file);
-  text = (text.slice(0, start) + text.slice(end + END.length)).replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-  fs.writeFileSync(file, text, "utf8");
+  fs.writeFileSync(file,original.slice(0,start)+original.slice(end+END.length),"utf8");
+  clearOwned(file);
   return true;
 }
 function readJson(file) {
@@ -84,71 +91,116 @@ function readJson(file) {
     catch { return { ok: false, value: null }; }
   }
 }
+// Ownership receipts contain hashes only: never copy another Agent's settings or secrets.
+function ownerPath(file) { return file + ".vibe-monitor-owned.json"; }
+function ownedHash(value) { return crypto.createHash("sha256").update(String(value)).digest("hex"); }
+function isOwned(file, value) {
+  try {
+    const receipt = JSON.parse(fs.readFileSync(ownerPath(file), "utf8"));
+    return receipt.version === 1 && receipt.sha256 === ownedHash(value);
+  } catch { return false; }
+}
+function markOwned(file, value) {
+  fs.writeFileSync(ownerPath(file), JSON.stringify({version:1,sha256:ownedHash(value)}) + "\n",
+    {encoding:"utf8",mode:0o600});
+}
+function clearOwned(file) { fs.rmSync(ownerPath(file), {force:true}); }
+function refuseConflict(file) {
+  return {changed:false,file,manualRequired:true,error:"existing_vibe_monitor_registration_preserved"};
+}
 function writeMcpJson(file, serverConfig) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const parsed = readJson(file);
-  if (!parsed.ok) {
-    return { changed: false, file, manualRequired: true, error: "existing_config_not_strict_json_preserved" };
-  }
+  if (!parsed.ok) return {changed:false,file,manualRequired:true,error:"existing_config_not_strict_json_preserved"};
   const json = parsed.value;
+  if (!json || typeof json !== "object" || Array.isArray(json) ||
+      (json.mcpServers !== undefined && (!json.mcpServers || typeof json.mcpServers !== "object" || Array.isArray(json.mcpServers))))
+    return refuseConflict(file);
   json.mcpServers ||= {};
-  const same = JSON.stringify(json.mcpServers["vibe-monitor"]) === JSON.stringify(serverConfig);
-  if (same) return { changed: false, file };
+  const previous = json.mcpServers["vibe-monitor"];
+  const expected = JSON.stringify(serverConfig);
+  if (previous !== undefined) {
+    const actual = JSON.stringify(previous);
+    if (actual === expected) return {changed:false,file};
+    if (!isOwned(file, actual)) return refuseConflict(file);
+  }
   backup(file);
   json.mcpServers["vibe-monitor"] = serverConfig;
-  fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n", "utf8");
-  return { changed: true, file };
+  fs.writeFileSync(file, JSON.stringify(json,null,2) + "\n", "utf8");
+  markOwned(file, expected);
+  return {changed:true,file};
 }
 function removeMcpJson(file) {
   if (!fs.existsSync(file)) return false;
   const parsed = readJson(file);
   if (!parsed.ok) return false;
   const json = parsed.value;
-  if (!json.mcpServers || !json.mcpServers["vibe-monitor"]) return false;
+  const previous = json?.mcpServers?.["vibe-monitor"];
+  if (previous === undefined || !isOwned(file, JSON.stringify(previous))) return false;
   backup(file);
   delete json.mcpServers["vibe-monitor"];
-  fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n", "utf8");
+  fs.writeFileSync(file, JSON.stringify(json,null,2) + "\n", "utf8");
+  clearOwned(file);
   return true;
+}
+function findCodexBlock(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex(line => line.trim() === "[mcp_servers.vibe-monitor]");
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++)
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) { end = i; break; }
+  return {lines,start,end,current:lines.slice(start,end).join("\n").trim()};
 }
 function writeCodexToml(file, spec) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  const args = spec.args.map(v => JSON.stringify(v)).join(", ");
-  const block = "[mcp_servers.vibe-monitor]\ncommand = " + JSON.stringify(spec.command) + "\nargs = [" + args + "]\n";
-  const lines = text.split(/\r?\n/);
-  const start = lines.findIndex(line => line.trim() === "[mcp_servers.vibe-monitor]");
-
-  if (start >= 0) {
-    let end = lines.length;
-    for (let i = start + 1; i < lines.length; i++) {
-      if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
-        end = i;
-        break;
-      }
-    }
-    const current = lines.slice(start, end).join("\n").trim();
-    if (current === block.trim()) return { changed: false, file };
+  const text = fs.existsSync(file) ? fs.readFileSync(file,"utf8") : "";
+  const block = "[mcp_servers.vibe-monitor]\ncommand = " + JSON.stringify(spec.command) +
+    "\nargs = [" + spec.args.map(v => JSON.stringify(v)).join(", ") + "]\n";
+  const found = findCodexBlock(text);
+  if (found) {
+    if (found.current === block.trim()) return {changed:false,file};
+    if (!isOwned(file, found.current)) return refuseConflict(file);
     backup(file);
-    const replacement = block.trimEnd().split("\n");
-    const next = [...lines.slice(0, start), ...replacement, ...lines.slice(end)]
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trimEnd() + "\n";
-    fs.writeFileSync(file, next, "utf8");
-    return { changed: true, updated: true, file };
+    const next = [...found.lines.slice(0,found.start),...block.trimEnd().split("\n"),
+      ...found.lines.slice(found.end)].join("\n").replace(/\n{3,}/g,"\n\n").trimEnd() + "\n";
+    fs.writeFileSync(file,next,"utf8");
+    markOwned(file,block.trim());
+    return {changed:true,updated:true,file};
   }
-
   backup(file);
-  fs.writeFileSync(file, text.trimEnd() + (text.trim() ? "\n\n" : "") + block, "utf8");
-  return { changed: true, file };
+  fs.writeFileSync(file,text.trimEnd()+(text.trim()?"\n\n":"")+block,"utf8");
+  markOwned(file,block.trim());
+  return {changed:true,file};
 }
 function removeCodexToml(file) {
   if (!fs.existsSync(file)) return false;
-  let text = fs.readFileSync(file, "utf8");
-  const re = /\n?\[mcp_servers\.vibe-monitor\]\n(?:command\s*=.*\n)?(?:args\s*=.*\n)?/m;
-  if (!re.test(text)) return false;
+  const text = fs.readFileSync(file,"utf8");
+  const found = findCodexBlock(text);
+  if (!found || !isOwned(file,found.current)) return false;
   backup(file);
-  fs.writeFileSync(file, text.replace(re, "\n").replace(/\n{3,}/g, "\n\n"), "utf8");
+  fs.writeFileSync(file,[...found.lines.slice(0,found.start),...found.lines.slice(found.end)]
+    .join("\n").replace(/\n{3,}/g,"\n\n").trimEnd()+"\n","utf8");
+  clearOwned(file);
+  return true;
+}
+function writeOwnedFile(file,value) {
+  fs.mkdirSync(path.dirname(file),{recursive:true});
+  if (fs.existsSync(file)) {
+    const previous = fs.readFileSync(file,"utf8");
+    if (previous === value) return {changed:false,file};
+    if (!isOwned(file,previous)) return refuseConflict(file);
+  }
+  backup(file);
+  fs.writeFileSync(file,value,"utf8");
+  markOwned(file,value);
+  return {changed:true,file};
+}
+function removeOwnedFile(file) {
+  if (!fs.existsSync(file) || !isOwned(file,fs.readFileSync(file,"utf8"))) return false;
+  backup(file);
+  fs.unlinkSync(file);
+  clearOwned(file);
   return true;
 }
 function commandExists(command) {
@@ -217,39 +269,22 @@ function createAgentAdapters(home, spec) {
       ]
     },
     claude: {
-      detect: () => fs.existsSync(path.join(home, ".claude")) || commandExists("claude"),
+      detect: () => fs.existsSync(path.join(home, ".claude.json")) ||
+        fs.existsSync(path.join(home, ".claude")) || commandExists("claude"),
       plan: () => [
-        { agent: "claude", action: "mcp", mode: commandExists("claude") ? "official-cli" : "manual-required" },
+        { agent: "claude", action: "mcp", file: path.join(home, ".claude.json"), scope: "user" },
         { agent: "claude", action: "instructions", file: path.join(home, ".claude", "CLAUDE.md") }
       ],
-      install: () => {
-        const changes = [];
-        if (commandExists("claude")) {
-          try { execFileSync("claude", ["mcp", "remove", "--scope", "user", "vibe-monitor"], { stdio: "ignore" }); } catch {}
-          try {
-            execFileSync("claude", ["mcp", "add", "--scope", "user", "vibe-monitor", "--", claudeSpec.command, ...claudeSpec.args], { stdio: ["ignore", "pipe", "pipe"] });
-            changes.push({ agent: "claude", kind: "mcp", changed: true, mode: "official-cli" });
-          } catch {
-            changes.push({ agent: "claude", kind: "mcp", changed: false, error: "claude_mcp_add_failed" });
-          }
-        } else {
-          changes.push({ agent: "claude", kind: "mcp", changed: false, manualRequired: true, error: "claude_cli_unavailable" });
-        }
-        changes.push({ agent: "claude", kind: "instructions", ...appendManagedBlock(path.join(home, ".claude", "CLAUDE.md")) });
-        return changes;
-      },
-      uninstall: () => {
-        const changes = [
-          { agent: "claude", kind: "instructions", changed: removeManagedBlock(path.join(home, ".claude", "CLAUDE.md")) }
-        ];
-        if (commandExists("claude")) {
-          try {
-            execFileSync("claude", ["mcp", "remove", "--scope", "user", "vibe-monitor"], { stdio: "ignore" });
-            changes.push({ agent: "claude", kind: "mcp", changed: true, mode: "official-cli" });
-          } catch {}
-        }
-        return changes;
-      }
+      // Claude Code user-scope MCP lives in ~/.claude.json.
+      // Never call `claude mcp remove` to replace a potentially user-owned server.
+      install: () => [
+        { agent: "claude", kind: "mcp", ...writeMcpJson(path.join(home, ".claude.json"), claudeSpec) },
+        { agent: "claude", kind: "instructions", ...appendManagedBlock(path.join(home, ".claude", "CLAUDE.md")) }
+      ],
+      uninstall: () => [
+        { agent: "claude", kind: "mcp", changed: removeMcpJson(path.join(home, ".claude.json")) },
+        { agent: "claude", kind: "instructions", changed: removeManagedBlock(path.join(home, ".claude", "CLAUDE.md")) }
+      ]
     },
     cursor: {
       detect: () => fs.existsSync(path.join(home, ".cursor")) || commandExists("cursor"),
@@ -263,15 +298,7 @@ function createAgentAdapters(home, spec) {
         ];
         const ruleFile = path.join(home, ".cursor", "rules", "vibe-monitor.mdc");
         const cursorRule = "---\ndescription: Vibe Monitor session activation\nalwaysApply: true\n---\n\n" + INSTRUCTION + "\n";
-        fs.mkdirSync(path.dirname(ruleFile), { recursive: true });
-        const old = fs.existsSync(ruleFile) ? fs.readFileSync(ruleFile, "utf8") : "";
-        if (old !== cursorRule) {
-          backup(ruleFile);
-          fs.writeFileSync(ruleFile, cursorRule, "utf8");
-          changes.push({ agent: "cursor", kind: "instructions", changed: true, file: ruleFile });
-        } else {
-          changes.push({ agent: "cursor", kind: "instructions", changed: false, file: ruleFile });
-        }
+        changes.push({agent:"cursor",kind:"instructions",...writeOwnedFile(ruleFile,cursorRule)});
         return changes;
       },
       uninstall: () => {
@@ -279,11 +306,7 @@ function createAgentAdapters(home, spec) {
           { agent: "cursor", kind: "mcp", changed: removeMcpJson(path.join(home, ".cursor", "mcp.json")) }
         ];
         const ruleFile = path.join(home, ".cursor", "rules", "vibe-monitor.mdc");
-        if (fs.existsSync(ruleFile) && fs.readFileSync(ruleFile, "utf8").includes(START)) {
-          backup(ruleFile);
-          fs.unlinkSync(ruleFile);
-          changes.push({ agent: "cursor", kind: "instructions", changed: true });
-        }
+        if (removeOwnedFile(ruleFile)) changes.push({agent:"cursor",kind:"instructions",changed:true});
         return changes;
       }
     },

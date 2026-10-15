@@ -54,6 +54,15 @@ export function windowsExpandArchiveCommand(archiveFile, tempDir) {
     " -DestinationPath " + literal(tempDir) + " -Force -ErrorAction Stop";
 }
 
+// The PowerShell Archive module is absent or cannot autoload on some Windows 10 hosts.
+// Do not bypass execution-policy or access-denied errors.
+export function windowsArchiveCommandUnavailable(error) {
+  const detail=[error?.stderr,error?.stdout,error?.message].filter(Boolean).map(String).join("\n");
+  return /(?:CouldNotAutoloadMatchingModule|CommandNotFoundException)/i.test(detail) &&
+    /(?:Expand-Archive|Microsoft\.PowerShell\.Archive)/i.test(detail) &&
+    !/(?:PSSecurityException|UnauthorizedAccess|AccessDenied|PermissionDenied)/i.test(detail);
+}
+
 const adapters = {
   darwin: {
     id: "macos",
@@ -112,9 +121,24 @@ const adapters = {
           encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 1024 * 1024
         });
       } catch (error) {
-        const detail = String(error?.stderr || error?.stdout || error?.message || "unknown")
-          .trim().replace(/\s+/g, " ").slice(0, 600);
-        throw new Error("runtime_extract_failed: " + detail);
+        if (!windowsArchiveCommandUnavailable(error)) {
+          const detail = String(error?.stderr || error?.stdout || error?.message || "unknown")
+            .trim().replace(/\s+/g, " ").slice(0, 600);
+          throw new Error("runtime_extract_failed: " + detail);
+        }
+        const tar = process.env.SystemRoot
+          ? path.join(process.env.SystemRoot, "System32", "tar.exe") : null;
+        if (!tar || !fs.existsSync(tar))
+          throw new Error("runtime_extract_failed:windows_tar_unavailable");
+        try {
+          execFileSync(tar, ["-xf", archiveFile, "-C", tempDir], {
+            stdio: ["ignore", "pipe", "pipe"], maxBuffer: 1024 * 1024
+          });
+        } catch (cause) {
+          const detail = String(cause?.stderr || cause?.stdout || cause?.message || "unknown")
+            .trim().replace(/\s+/g, " ").slice(0, 600);
+          throw new Error("runtime_extract_failed:windows_tar: " + detail);
+        }
       }
       moveExtractedDirectory(tempDir, "node-v" + version + "-", destination);
     }
