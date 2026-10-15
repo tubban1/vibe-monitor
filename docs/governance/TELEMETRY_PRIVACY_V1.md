@@ -30,9 +30,9 @@ enabling production Free ingestion. No production Free uploads are claimed.
 
 ## One Free product, independent strategy and telemetry channels
 
-- `GET /community/policy`: Cloud-to-client, read-only declarative
+- `GET /free/policy`: Cloud-to-client, read-only declarative
   architecture policy, protected by an Ed25519 signature and pinned client
-  public key. `community` is the legacy wire identifier, **not** a fourth plan.
+  public key. `community` is an internal signing/profile identifier, **not** a fourth plan.
 - `POST /free/telemetry`: Free-client-to-Cloud pseudonymous usage,
   architectural evidence and outcome signals, independently rate-limited
   and admitted. It is not private Beta's authenticated `/events` API.

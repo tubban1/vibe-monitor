@@ -1,13 +1,13 @@
 // Transient Cloud-issued public-client baseline strategy, not a plan/tier.
-// Legacy /community/policy URL, signing key ID and audience remain wire protocol
-// identifiers until a coordinated server/client migration; they do NOT grant Free,
-// Pro or Team entitlements. Cloud APIs enforce subscriptions and quotas.
+// Canonical Free policy URL. Historical community-named Ed25519 key IDs and
+// audience are internal protocol identifiers, NOT a Community subscription.
+// No Community subscription and no legacy HTTP route are offered.
 // No disk storage, no credential,
 // policy JSON or signed payload persistence. Cache lives only in process memory.
 import {verify,createPublicKey} from "node:crypto";
 import {sanitizeRemotePolicy} from "./policy-sanitizer.js";
 import {POLICY_V2_FAMILIES} from "./decision-policy.js";
-export const COMMUNITY_POLICY_URL="https://vibe-api.fde.fan/community/policy";
+export const COMMUNITY_POLICY_URL="https://vibe-api.fde.fan/free/policy";
 export const COMMUNITY_POLICY_KEY_ID="community-ed25519-v1";
 export const COMMUNITY_POLICY_NEXT_KEY_ID="community-ed25519-v2";
 // Both trust anchors stay OFF until audited build-time provisioning.

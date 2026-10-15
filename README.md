@@ -43,11 +43,11 @@ The default official Cloud API is `https://vibe-api.fde.fan`. [Installation, ver
 
 **Future direction: one installer, Free / Pro / Team.** Free should work without creating an account, with clearly disclosed **required product-improvement telemetry**: stopping telemetry disables Free analysis. Pro/Team use the *same client* and unlock Cloud services through authentication and server-enforced entitlements. This Free onboarding/telemetry contract is **not shipped in Beta.41**.
 
-**One Free plan, two separate Cloud interfaces:** `GET /community/policy`
+**One Free plan, two separate Cloud interfaces:** `GET /free/policy`
 delivers signed architecture-analysis strategy **from Cloud to client**;
 `POST /free/telemetry` sends bounded pseudonymous product/architecture
-signals **from Free client to Cloud**. **Community is a legacy strategy
-endpoint/profile name, not a separate subscription tier.** Free, Pro and
+signals **from Free client to Cloud**. **Community is an internal signing/profile identifier,
+not a subscription tier.** The unpublished historical policy URL has no compatibility alias. Free, Pro and
 Team share the same installer. Fetching a strategy never authorizes a
 telemetry upload; both channels have independent security checks and
 deployment gates. Neither new production endpoint is live yet.
