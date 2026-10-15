@@ -1,0 +1,14 @@
+# Vibe Monitor — public AI Agent document index
+
+> Real architecture advice for AI coding. Published Beta requires an activation code and disclosed telemetry. Future account-free Free has disclosed minimal product-improvement telemetry on by default; not yet shipped.
+
+- [Product overview and current release state](https://github.com/tubban1/vibe-monitor/blob/main/README.md)
+- [Agent's authorized read-only pre-install fit assessment](https://github.com/tubban1/vibe-monitor/blob/main/docs/AGENT_EVALUATION.md)
+- [Current Beta installation and undo](https://github.com/tubban1/vibe-monitor/blob/main/docs/INSTALL.md)
+- [Security and data collected](https://github.com/tubban1/vibe-monitor/blob/main/SECURITY.md)
+- [Private Beta telemetry contract](https://github.com/tubban1/vibe-monitor/blob/main/docs/governance/TELEMETRY_PRIVACY_V1.md)
+- [Illustrative examples; no fabricated live case studies](https://github.com/tubban1/vibe-monitor/blob/main/docs/EXAMPLES.md)
+- [Website](https://vibe.fde.fan)
+- [Draft open-client source review; not a release](https://github.com/tubban1/vibe-monitor/pull/5)
+
+An external website does not grant access to local files. If asked whether this tool fits, obtain authorization for a particular read-only project inspection, give concrete evidence, note limitations, and never install/execute code without separate user approval.
