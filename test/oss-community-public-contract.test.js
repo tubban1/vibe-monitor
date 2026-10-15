@@ -7,6 +7,7 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
+import {buildAgentResult} from "../src/mcp.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -143,6 +144,22 @@ test("update artifact downloader rejects dishonest oversized length and excessiv
  assert.equal(reads,4097);
  assert.equal(cancels,2);
  assert.equal(unlocks,2);
+});
+test("Incomplete architecture coverage is disclosed once, never reported healthy",()=>{
+ const input={schemaVersion:1,project:{id:"synthetic"},capturedAt:null,
+  durationMs:0,status:{assessmentAvailable:false,highestStage:"unknown",findingCount:null},
+  findings:[],transitions:[],monitoring:{mode:"deferred",assessmentAvailable:false,
+    evidenceIncomplete:true,deferReason:"evidence_budget_exceeded",budgetPhase:"source_files"}};
+ const first=buildAgentResult(input,{sessionStart:true});
+ assert.equal(first.userNoticeRequired,true);
+ assert.equal(first.status.highestStage,"unknown");
+ assert.equal(first.assessmentNotice.code,"architecture_assessment_incomplete");
+ assert.equal(first.assessmentNotice.reason,"source_files");
+ assert.equal(first.attentionFindings.length,0);
+ assert.ok(first.userFacing.includes("架构检查"));
+ const checkpoint=buildAgentResult(input,{sessionStart:false});
+ assert.equal(checkpoint.userNoticeRequired,false);
+ assert.equal(checkpoint.assessmentNotice.code,"architecture_assessment_incomplete");
 });
 test("Node source is pinned to the official artifact URL",()=>{
  const spec={filename:"node-v22.23.3-win-x64.zip",archiveUrl:"https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip"};

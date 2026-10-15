@@ -123,6 +123,16 @@ export function buildAgentResult(result, { sessionStart = false, attentionFilter
     .filter(change => change.type === "improved" && ["S3", "S4", "S5"].includes(change.fromStage))
     .slice(0, 1)
     .map(improvementNotice);
+  // An unfinished large-project scan is not a clean architecture report.
+  // Tell the Agent once at session start without repeatedly nagging at every
+  // checkpoint or inventing a fresh S4/S5 finding from partial evidence.
+  const evidenceIncomplete = result?.status?.assessmentAvailable === false &&
+    result?.monitoring?.deferReason === "evidence_budget_exceeded";
+  const assessmentNotice = evidenceIncomplete ? {
+    code: "architecture_assessment_incomplete",
+    reason: result.monitoring.budgetPhase || "scan_budget",
+    userFacing: "Vibe Monitor 没有完成本次架构检查：项目超出了当前扫描预算。状态为未知，不代表架构健康。请检查单个较小的项目，或稍后重试。"
+  } : null;
 
   return {
     schemaVersion: result.schemaVersion,
@@ -132,7 +142,10 @@ export function buildAgentResult(result, { sessionStart = false, attentionFilter
     status: result.status,
     monitoring: result.monitoring || null,
     watchCount: result.findings.filter(f => f.stage === "S2").length,
-    userNoticeRequired: attentionFindings.length > 0 || improvements.length > 0,
+    userNoticeRequired: attentionFindings.length > 0 || improvements.length > 0 ||
+      Boolean(sessionStart && assessmentNotice),
+    ...(assessmentNotice ? {assessmentNotice} : {}),
+    ...(assessmentNotice && sessionStart ? {userFacing:assessmentNotice.userFacing} : {}),
     attentionFindings,
     suppressedAttentionCount: Math.max(0, baseEligibleAttention.length - attentionFindings.length),
     improvements

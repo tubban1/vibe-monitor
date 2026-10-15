@@ -17,7 +17,7 @@ const INSTRUCTION = [
   "At the start of any coding-project session, before the first project inspection, plan, or code change, if Vibe Monitor tools are available, call `vibe_session_start` exactly once.",
   "Do this even when the user's first request is read-only, such as checking project status or understanding the codebase.",
   "After a meaningful implementation batch, call `vibe_checkpoint`.",
-  "If `attentionRequired=false`, continue normally and do not call `vibe_findings` or `vibe_explain_finding`.",
+  "If `attentionRequired=false`, do not call `vibe_findings` or `vibe_explain_finding`. If the assessment is incomplete, the status is unknown, not healthy: still tell the user when `userNoticeRequired=true`.",
   "If `userNoticeRequired=true`, make the returned Vibe notice visible to the user in your normal response. Use the provided `userFacing` text instead of exposing internal metric names unless the user asks for details.",
   "Vibe applies an attention budget: normal responses should surface at most two different monitor families, even if more internal findings exist. Do not expand suppressed findings unless the current task needs them or the user asks.",
   "Keep the notice short and practical: what is getting hard to change, why that matters in plain language, what to do this time, what not to do yet, and when it becomes worth doing more.",
