@@ -28,6 +28,22 @@ Applicable data-transfer safeguards, collection purposes, access controls,
 capacity/backup security and lawful-basis notices require review before
 enabling production Free ingestion. No production Free uploads are claimed.
 
+## One Free product, independent strategy and telemetry channels
+
+- `GET /community/policy`: Cloud-to-client, read-only declarative
+  architecture policy, protected by an Ed25519 signature and pinned client
+  public key. `community` is the legacy wire identifier, **not** a fourth plan.
+- `POST /free/telemetry`: Free-client-to-Cloud pseudonymous usage,
+  architectural evidence and outcome signals, independently rate-limited
+  and admitted. It is not private Beta's authenticated `/events` API.
+
+These interfaces are independently enabled: downloading a strategy is not
+telemetry consent or an implicit upload. **Free, Pro and Team** are the
+actual subscription tiers, with one client. Free telemetry is a disclosed
+condition for Free analysis; turning it off suspends Free analysis, while
+local inspection and uninstall remain available. Signed-policy delivery
+and Free Cloud ingest both remain subject to their own live release gates.
+
 ## Purpose
 
 Private beta needs enough evidence to improve Vibe Monitor's decisions without turning Vibe into a source-code or conversation collection system.
