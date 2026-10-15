@@ -14,6 +14,14 @@ This PUBLIC repository is for the future open-source Vibe Monitor **CLI / MCP cl
 
 The current `@vibe-monitor/setup@beta` npm channel remains **private beta software**, with existing activation requirements, private evaluation license and [Telemetry & Privacy Contract v4](docs/governance/TELEMETRY_PRIVACY_V1.md).
 
+### Planned Free telemetry service contract — not yet released
+
+Free architecture analysis requires product-improvement telemetry covering usage/performance, architecture changes, technical/product categories, recommendations, and explicit user/Agent outcome reports. The client sends pseudonymized association IDs and bounded statistical groups, not raw source, repository URLs/names, file paths, prompts, secrets or free-form notes.
+
+`vibe-monitor telemetry off` stops collection **and Free architecture analysis**. `vibe-monitor telemetry on` restores both. `vibe-monitor telemetry inspect` shows pending events. `--no-telemetry` cannot be used to install or configure Free. Security/export, telemetry status, uninstall and diagnostics remain available. The one client also supports future Pro/Team authenticated Cloud grants, not local self-claimed paid rights.
+
+**Release gate:** Free cloud upload remains disabled in this review build. Processing purpose, lawful basis, regional storage, retention/deletion, privacy information and any separately regulated AI training or sharing require independent review; this commercial contract alone does not prove lawful consent.
+
 ## Private Beta
 
 Beta interest can be expressed through the [public GitHub issue form](https://github.com/tubban1/vibe-monitor/issues/new?template=beta-access.yml). This is PUBLIC: do not post emails, passwords, private repository URLs, source code, logs, credentials or activation codes.

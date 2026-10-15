@@ -37,6 +37,10 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.match(help.stdout,/signed Cloud policy stays in process memory only/);
  assert.doesNotMatch(help.stdout,/vibe-monitor cloud register|vibe-monitor cloud status\|config\|sync|vibe-monitor telemetry intelligence|vibe-monitor update status\|check\|stage/,
   "The one open client must not advertise unavailable legacy Beta upload or unsigned updater commands");
+ const blockedBeforeInstall=run("scan",project,"--json");
+ assert.equal(blockedBeforeInstall.status,2,"Free analysis must not run before required telemetry is active");
+ assert.equal(JSON.parse(blockedBeforeInstall.stdout).monitoring.reason,"telemetry_required");
+ assert.equal(run("telemetry","on","--json").status,0);
  const scan=run("scan",project,"--json");
  assert.equal(scan.status,0,scan.stderr?.slice(0,600));
  const scanned=JSON.parse(scan.stdout);
@@ -75,17 +79,40 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(fs.existsSync(path.join(app,"installation-attempts")),false,
   "Unified client must not persist Beta install tracking events");
  assert.equal(fs.existsSync(path.join(app,"telemetry","queue.jsonl")),false);
- const setup=run("setup","--codex","--no-telemetry","--json");
+ const refused=run("setup","--codex","--no-telemetry","--json");
+ assert.equal(refused.status,2,"Free setup cannot bypass the telemetry-service contract");
+ const refusedInstall=run("install","--codex","--no-telemetry","--json");
+ assert.equal(refusedInstall.status,2,"Free install cannot bypass the contract");
+ const setup=run("setup","--codex","--json");
  assert.equal(setup.status,0,setup.stderr?.slice(0,600));
  const configured=JSON.parse(setup.stdout);
- assert.equal(configured.telemetry.enabled,false);
+ assert.equal(configured.telemetry.enabled,true);
+ assert.equal(configured.telemetry.telemetryRequiredForFree,true);
+ assert.equal(configured.telemetry.analysisStopsWhenDisabled,true);
  assert.equal(configured.telemetry.requiredDuringPrivateBeta,false);
  const optIn=run("telemetry","on");
  assert.equal(optIn.status,0,"Free telemetry activation is separate from legacy Beta upload");
  assert.equal(JSON.parse(optIn.stdout).enabled,true);
  const intelligence=run("telemetry","intelligence","on");
  assert.equal(intelligence.status,0,"Independent Free architecture profiling can be enabled locally");
- assert.equal(run("telemetry","off","--json").status,0);
+ const disabledTelemetry=run("telemetry","off","--json");
+ assert.equal(disabledTelemetry.status,0);
+ assert.equal(JSON.parse(disabledTelemetry.stdout).serviceEnabled,false);
+ const blockedScan=run("scan",project,"--json");
+ assert.equal(blockedScan.status,2,"Free service cannot analyze after telemetry off");
+ const denial=JSON.parse(blockedScan.stdout);
+ assert.equal(denial.monitoring.reason,"telemetry_required");
+ assert.equal(denial.status.assessmentAvailable,false);
+ for(const blocked of ["projects","activity"]){
+   const result=run(blocked,"--json");assert.equal(result.status,2);
+   assert.equal(JSON.parse(result.stdout).serviceEnabled,false);
+ }
+ assert.equal(run("telemetry","intelligence","off","--json").status,2,
+   "Core Free architecture profiling cannot be disabled separately while analysis remains available");
+ const resumed=run("telemetry","on","--json");
+ assert.equal(resumed.status,0);
+ assert.equal(JSON.parse(resumed.stdout).serviceEnabled,true);
+ assert.equal(run("scan",project,"--json").status,0);
  assert.equal(run("cloud","sync","--json").status,2,"Beta Cloud telemetry sync must be blocked");
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
  const qaPairing=spawnSync(process.execPath,["--import",blockUrl,cli,"account","link","--qa"],

@@ -391,9 +391,10 @@ function scrubQueuedArchitectureProfiles() {
 export function initializeFreeTelemetry() {
   if (!isOpenClientDistribution()) return telemetryStatus();
   const previous = safeJsonRead(configFile(), null);
-  // First install defaults to on. An explicit Free opt-out survives reinstall.
+  // First install accepts the disclosed Free product-improvement contract.
+  // If stopped, Free analysis also stops; the user may restore both together.
   if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: true,
-    consentVersion: "free-v1", dataIntelligenceDecision: "accepted",
+    consentVersion: "free-v1", dataIntelligenceDecision: "included",
     updatedAt: new Date().toISOString() });
   if (readConfig().enabled) ensureIdentity();
   return telemetryStatus();
@@ -407,7 +408,9 @@ export function setTelemetryEnabled(enabled) {
     withQueueMutationLock(() => {
       const previous = readConfig();
       writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
-        enabled: Boolean(enabled), consentVersion: "free-v1",
+        enabled: Boolean(enabled),
+        ...(enabled ? {dataIntelligenceDecision:"included"} : {}),
+        consentVersion: "free-v1",
         updatedAt: new Date().toISOString() });
       if (!enabled) {
         // Opt-out clears every pending Free segment, not just the active file.
@@ -440,10 +443,11 @@ export function setTelemetryEnabled(enabled) {
 /** The caller must obtain an explicit, versioned collection choice before enabling. */
 export function setDataIntelligenceEnabled(enabled) {
   if (isOpenClientDistribution()) {
+    if (!enabled) throw new Error("free_architecture_profile_required_for_analysis_use_telemetry_off");
     const previous = readConfig();
     if (enabled && !previous.enabled) throw new Error("telemetry_must_be_enabled");
     writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
-      dataIntelligenceDecision: enabled ? "accepted" : "declined",
+      dataIntelligenceDecision: "included",
       consentVersion: "free-v1", updatedAt: new Date().toISOString() });
     if (!enabled) scrubQueuedArchitectureProfiles();
     return telemetryStatus();
@@ -496,7 +500,10 @@ export function telemetryStatus() {
   if (isOpenClientDistribution()) {
     const config = readConfig();
     const identity = safeJsonRead(identityFile(), null);
-    return { enabled: config.enabled === true, consentVersion: config.consentVersion || null,
+    return { enabled: config.enabled === true, serviceEnabled: config.enabled === true && config.dataIntelligenceDecision !== "declined",
+      telemetryRequiredForFree: true, analysisStopsWhenDisabled: true,
+      telemetryPurpose: "free-architecture-service-improvement",
+      consentVersion: config.consentVersion || null,
       dataIntelligenceEnabled: config.enabled === true && config.dataIntelligenceDecision !== "declined",
       dataIntelligenceDecision: config.dataIntelligenceDecision || null,
       installationId: identity?.installationId || null,
@@ -831,6 +838,44 @@ export function enqueueCallCompletedTelemetry({
   return true;
 }
 
+// Safe commercial-learning categories from an existing full scan; never raw text.
+const FREE_PROFILE_BANDS=new Set(["unknown","none","1-2","3-5","6-10","11-50","gt50"]);
+const FREE_PROFILE_TYPES=new Set(["unknown","saas_candidate","commerce_candidate","developer_tool_candidate","api_service_candidate"]);
+const FREE_PROFILE_CONFIDENCE=new Set(["unknown","low","medium"]);
+const FREE_PROFILE_TECH=new Set(["state","http","validation","orm","logging"]);
+const FREE_PROFILE_DEPLOY=new Set(["web_hosting","platform_hosting","edge","container","orchestration","functions","process_hosting"]);
+const FREE_PROFILE_INTEGRATIONS=new Set(["ai","payments","data_backend","cloud","developer_services","communications"]);
+function safeFreeArchitectureProfile(p){
+ const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
+ if(!plain(p)||p.version!==1||p.provenance!=="scan_inferred"||
+    !plain(p.product)||!plain(p.stack)||!plain(p.architecture)||!plain(p.engineering))return null;
+ const cls=(v,set)=>typeof v==="string"&&set.has(v)?v:null;
+ const list=(v,set)=>Array.isArray(v)&&v.length<=8&&v.every(x=>cls(x,set)!==null)?[...new Set(v)].sort():null;
+ const product={type:cls(p.product.type,FREE_PROFILE_TYPES),confidence:cls(p.product.confidence,FREE_PROFILE_CONFIDENCE)};
+ const stack={technologyGroups:list(p.stack.technologyGroups,FREE_PROFILE_TECH),
+   deploymentClasses:list(p.stack.deploymentClasses,FREE_PROFILE_DEPLOY),
+   integrationDomains:list(p.stack.integrationDomains,FREE_PROFILE_INTEGRATIONS)};
+ const architecture={workspace:cls(p.architecture.workspace,new Set(["unknown","multi_package_signal"]))};
+ for(const k of ["apiEndpoints","tenantConcepts","backgroundJobs","statePersistence","asyncPaths"])
+  architecture[k]=cls(p.architecture[k],FREE_PROFILE_BANDS);
+ const engineering={duplicationGroups:cls(p.engineering.duplicationGroups,FREE_PROFILE_BANDS),
+  testsPresent:typeof p.engineering.testsPresent==="boolean"?p.engineering.testsPresent:null,
+  testLoc:cls(p.engineering.testLoc,FREE_PROFILE_BANDS),
+  assertionSignals:cls(p.engineering.assertionSignals,FREE_PROFILE_BANDS)};
+ if([...Object.values(product),...Object.values(stack),...Object.values(architecture),
+     ...Object.values(engineering)].some(v=>v===null))return null;
+ return {version:1,provenance:"scan_inferred",product,stack,architecture,engineering};
+}
+const FREE_GRAPH_BANDS=new Set(["lt1","1-2","3-5","6-10","11-20","21-50","51-100","101-250","251-500","501-1000","1001-2000","2001-5000","gt5000"]);
+function safeFreeGraph(graph){
+ if(!graph||typeof graph!=="object"||Array.isArray(graph))return null;
+ const out={};
+ for(const k of ["edgeCountBucket","cycleCountBucket","maxFanInBucket","maxFanOutBucket"]){
+  const v=graph[k];if(typeof v!=="string"||!FREE_GRAPH_BANDS.has(v))return null;out[k]=v;
+ }
+ return out;
+}
+
 // Free V4 upload projection. Never transmit the full Beta V4 event object.
 export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) {
  if(!isOpenClientDistribution())return [];
@@ -863,6 +908,14 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
    payload.projectChanged=e.payload.projectChanged;
   if(/^[a-f0-9]{32}$/i.test(e.payload?.outcomeRef||""))
    payload.outcomeRef=e.payload.outcomeRef;
+  if(e.event==="scan.observed"&&e.payload?.architectureProfile){
+    const profile=safeFreeArchitectureProfile(e.payload.architectureProfile);
+    if(profile)payload.architectureProfile=profile;
+  }
+  if(e.event==="scan.observed"&&e.payload?.graph){
+    const graph=safeFreeGraph(e.payload.graph);
+    if(graph)payload.graph=graph;
+  }
   const boundedUuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value||"")?value:null;
   const boundedPseudonym=value=>/^[a-f0-9]{32}$/i.test(value||"")?value:null;
   const boundedInt=value=>Number.isSafeInteger(value)&&value>=1&&value<=1000000?value:null;

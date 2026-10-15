@@ -645,11 +645,13 @@ export async function installOpenClientProduct({agents,local=true,cliPath,onStag
   return {
     installed:true,version:CLIENT_VERSION,distribution:"open-client",
     runtime,activation:{registered:false,reusedExisting:false,
-      serviceEnabled:true},
+      serviceEnabled:telemetry.enabled===true},
     setup,security:securityStatus(),
-    telemetry:{...telemetry,requiredDuringPrivateBeta:false,defaultEnabled:true},
+    telemetry:{...telemetry,requiredDuringPrivateBeta:false,
+      telemetryRequiredForFree:true,analysisStopsWhenDisabled:true,defaultEnabled:true},
     next:["Restart your coding agent if necessary.",
       "Open a project and ask for a local architecture review.",
+      "Free architecture analysis requires enabled product-improvement telemetry; telemetry off disables the Free service.",
       "Local architecture scanning needs no account. Paid Cloud access requires server-verified grants."]
   };
 }

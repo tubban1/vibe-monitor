@@ -31,7 +31,7 @@ import {
 } from "./architecture-review.js";
 import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTelemetry } from "./telemetry.js";
 import { CLIENT_VERSION } from "./constants.js";
-import { isOpenClientDistribution, resolveDistributionPolicy } from "./distribution.js";
+import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
 import { recommendationGroups } from "./diagnostic-quality.js";
 import { highSeverityReviewQueue } from "./finding-intelligence.js";
@@ -191,7 +191,7 @@ export function buildDisabledPolicyPayload(remotePolicy) {
   const nextAction = reason === "cloud_not_registered"
     ? "Complete cloud activation; check vibe-monitor doctor --json."
     : reason === "telemetry_required"
-      ? "The private beta requires telemetry; check vibe-monitor telemetry status."
+      ? "Free architecture analysis requires product-improvement telemetry. Run vibe-monitor telemetry on to restore service; telemetry off stops both collection and Free analysis."
       : unavailable && remotePolicy.diagnostic?.code === "service_control_unauthorized"
         ? "Cloud authorization failed. Contact beta support; never share tokens."
         : unavailable
@@ -328,6 +328,12 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
         persist, kind, policy: remotePolicy.config
       });
     const analysisMs = Date.now() - analysisStartedAt;
+    // Telemetry may be disabled in another process while a scan is running.
+    if(isOpenClientDistribution()&&!freeAnalysisContractStatus().serviceEnabled){
+      const access={enabled:false,source:"free-service-contract",reason:"telemetry_required"};
+      return {result:null,remotePolicy:access,disabled:true,callId,
+        disabledPayload:disabledPayload(access)};
+    }
     const result = applyMonitoringPolicy(raw, remotePolicy.config);
     result.monitoring = {
       ...(result.monitoring || {}),
@@ -837,6 +843,8 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     nextTrigger,
     decisionQuestions
   }) => {
+    const access=await resolveDistributionPolicy({fetchPolicy:fetchRemotePolicy});
+    if(access.enabled===false)return textResult(disabledPayload(access));
     const existing = loadArchitectureReview(reviewId);
     if (!existing?.request) {
       return textResult({ error: "review_request_not_found", reviewId });

@@ -197,6 +197,32 @@ test("Free V4 wire never forwards raw project, prompt, token or nested intellige
  assert.deepEqual(rows[0].payload,{sourceFilesBucket:"21-50",totalLocBucket:"501-1000"});
  assert.doesNotMatch(JSON.stringify(rows),/raw user message|placeholder|const secret|private\/source|architectureProfile/);
 });
+test("Free scan-derived product/stack/architecture profile is useful and remains categorical",{skip:!staged?"OSS-only profile":false},()=>{
+ const profile={version:1,provenance:"scan_inferred",
+  product:{type:"saas_candidate",confidence:"medium",projectName:"do-not-upload"},
+  stack:{technologyGroups:["http","orm"],deploymentClasses:["web_hosting"],
+   integrationDomains:["ai","payments"],customerId:"private"},
+  architecture:{workspace:"multi_package_signal",apiEndpoints:"3-5",
+   tenantConcepts:"1-2",backgroundJobs:"none",statePersistence:"1-2",asyncPaths:"3-5"},
+  engineering:{duplicationGroups:"1-2",testsPresent:true,testLoc:"11-50",assertionSignals:"3-5"},
+  rawPath:"/private/customer-repo",source:"do_not_upload"};
+ const e={schemaVersion:4,eventId:crypto.randomUUID(),installationId:crypto.randomUUID(),
+  event:"scan.observed",at:new Date().toISOString(),projectId:"a".repeat(32),
+  agent:"codex",stage:"S4",payload:{architectureProfile:profile,sourceFilesBucket:"21-50",
+   graph:{edgeCountBucket:"51-100",cycleCountBucket:"lt1",maxFanInBucket:"11-20",
+    maxFanOutBucket:"3-5",rawGraph:"private"}}};
+ const [wire]=freeTelemetryWireBatch([e]);
+ assert.equal(wire.payload.architectureProfile.product.type,"saas_candidate");
+ assert.deepEqual(wire.payload.architectureProfile.stack.technologyGroups,["http","orm"]);
+ assert.deepEqual(wire.payload.architectureProfile.stack.integrationDomains,["ai","payments"]);
+ assert.equal(wire.payload.architectureProfile.engineering.testsPresent,true);
+ assert.equal(wire.payload.graph.edgeCountBucket,"51-100");
+ assert.ok(Buffer.byteLength(JSON.stringify(wire))<=4096);
+ assert.doesNotMatch(JSON.stringify(wire),/do-not-upload|private\/customer|do_not_upload|customerId|rawGraph|rawPath/);
+ const bad=structuredClone(e);bad.payload.architectureProfile.product.type="customer_secret_name";
+ const [clean]=freeTelemetryWireBatch([bad]);
+ assert.equal(clean.payload.architectureProfile,undefined);
+});
 test("Free commercial signal retains HMAC join keys but strips notes, paths and source",{skip:!staged?"OSS-only linked wire":false},()=>{
  const sessionId=crypto.randomUUID(),callId=crypto.randomUUID(),scanId=crypto.randomUUID();
  const input={schemaVersion:4,eventId:crypto.randomUUID(),installationId:crypto.randomUUID(),
