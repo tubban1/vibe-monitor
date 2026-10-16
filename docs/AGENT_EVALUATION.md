@@ -21,11 +21,11 @@ Vibe Monitor is a source-read-only architecture advisor integrated with existing
 
 ## Concise report template
 
-**Fit:** recommended / maybe later / unnecessary, with one grounded reason.  
-**Actual access:** project path/scope the user authorized, or “no project files inspected.”  
-**Evidence:** no more than two concrete structural or change-history findings, or “not enough evidence.”  
-**Recommended next action:** a small change, what *not* to do yet, and one trigger for reassessment.  
-**Trade-offs:** current Beta code requirement, disclosed telemetry, Agent configuration changes and Agent/provider data handling.  
-**Question:** “Do you want me to show the official installation steps?” **Never install first.**
+- **Fit:** recommended / maybe later / unnecessary, with one grounded reason.
+- **Actual access:** project path/scope the user authorized, or “no project files inspected.”
+- **Evidence:** no more than two concrete structural or change-history findings, or “not enough evidence.”
+- **Recommended next action:** a small change, what *not* to do yet, and one trigger for reassessment.
+- **Trade-offs:** current Beta code requirement, disclosed telemetry, Agent configuration changes and Agent/provider data handling.
+- **Question:** “Do you want me to show the official installation steps?” **Never install first.**
 
 Illustrative wording: “A large UI module may be accumulating storage responsibilities; I have not inspected your project yet. With permission, I can check whether that is actually happening.” **Never call this a real Vibe finding.**

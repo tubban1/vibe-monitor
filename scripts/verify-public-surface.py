@@ -23,7 +23,13 @@ privacy = require("docs/governance/TELEMETRY_PRIVACY_V1.md")
 issue = require(".github/ISSUE_TEMPLATE/beta-access.yml")
 if "https://vibe.fde.fan" not in readme:
     errors.append("official_website_missing")
-if "client source" not in readme.lower() or "not" not in readme.lower():
+client_source_disclosed = re.search(r"\bclient[\s-]+source\b", readme, re.IGNORECASE)
+unreleased_disclosed = re.search(
+    r"\bnot\b(?:[^\w]+been)?[^\w]+(?:merged|published|released|shipped)\b",
+    readme,
+    re.IGNORECASE,
+)
+if not client_source_disclosed or not unreleased_disclosed:
     errors.append("unreleased_oss_status_disclosure_missing")
 if not privacy or "telemetry" not in privacy.lower():
     errors.append("beta_privacy_disclosure_missing")
