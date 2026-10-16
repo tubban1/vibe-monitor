@@ -65,6 +65,19 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(fs.readFileSync(legacyMetadata,"utf8"),legacyContent);
  assert.equal(fs.existsSync(path.join(app,"runtime","current.json")),false);
  assert.equal(fs.existsSync(path.join(home,".codex","config.toml")),false);
+ for(const attempted of [
+  ["setup","--codex","--json"],
+  ["uninstall","--codex","--json"],
+  ["update","stage","--json"],
+  ["update","activate","--json"]
+ ]){
+  const refused=run(...attempted);
+  assert.equal(refused.status,2,attempted.join(" ")+" must protect Beta");
+  assert.equal(JSON.parse(refused.stdout).errorCode,"legacy_beta_upgrade_requires_verified_handoff");
+  assert.equal(fs.readFileSync(legacyMetadata,"utf8"),legacyContent);
+  assert.equal(fs.existsSync(path.join(app,"runtime","current.json")),false);
+  assert.equal(fs.existsSync(path.join(home,".codex","config.toml")),false);
+ }
  fs.rmSync(legacyMetadata);
  const install=run("install","--codex","--json");
  assert.equal(install.status,0,install.stderr?.slice(0,600));

@@ -174,14 +174,21 @@ function printHuman(result) {
   }
 }
 
+// Protect every open-client entry that mutates Runtime or Agent registration
+// before lifecycle files, package pointers or IDE configuration are written.
+const changesInstalledRuntimeOrAgents=command==="install"||command==="uninstall"||
+  (command==="setup"&&!args.includes("--dry-run"))||
+  (command==="update"&&["stage","activate"].includes(args[1]));
+if(isOpenClientDistribution()&&changesInstalledRuntimeOrAgents){
+  const betaBlock=detectUnmigratedBetaInstallation();
+  if(betaBlock){
+    if(json)print({installed:false,errorCode:betaBlock});
+    console.error("Existing Beta installation preserved. Verified Cloud identity migration is required before upgrading; Beta remains unchanged.");
+    process.exit(2);
+  }
+}
 if (command === "install") {
   if (isOpenClientDistribution()) {
-    const legacyBetaBlock=detectUnmigratedBetaInstallation();
-    if(legacyBetaBlock){
-      if(json)print({installed:false,errorCode:legacyBetaBlock});
-      console.error("Existing Beta installation preserved. Verified Cloud identity migration is required before upgrading; Beta remains unchanged.");
-      process.exit(2);
-    }
     if (args.includes("--no-telemetry")) {
       console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Use telemetry off later to stop collection AND analysis.");
       process.exit(2);
