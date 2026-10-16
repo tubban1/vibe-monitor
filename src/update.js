@@ -23,7 +23,7 @@ import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 
 // Separate public-client artifact signing trust: architecture policy signature
 // never authorizes executable updates. Keys must be independently audited/pinned.
-export const FREE_UPDATE_MANIFEST_URL="https://vibe.fde.fan/.well-known/vibe-monitor-update.json";
+export const FREE_UPDATE_MANIFEST_URL="https://vibe-api.fde.fan/free/update-manifest";
 export const FREE_UPDATE_KEY_ID="free-update-ed25519-v1";
 export const FREE_UPDATE_NEXT_KEY_ID="free-update-ed25519-v2";
 export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM=null;
