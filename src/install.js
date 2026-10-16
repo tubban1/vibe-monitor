@@ -634,9 +634,20 @@ export async function installRuntime({
 // Transitional open-client install is shared by Free/Pro/Team; only legacy Beta retains different consent terms.
 // This initial path is for a source checkout or a verified installed CLI entry;
 // a public npm stable/package upgrade contract is gated on release CI.
+export function detectUnmigratedBetaInstallation(){
+  // Open-client never reads/imports legacy Beta tokens. Registered Beta
+  // Cloud metadata is the reliable signal; semver alone is ambiguous because
+  // the audited open-client preview still shares the historical beta version.
+  if(fs.existsSync(path.join(vibeHome(),"cloud","client.json")))
+    return "legacy_beta_upgrade_requires_verified_handoff";
+  return null;
+}
+
 export async function installOpenClientProduct({agents,local=true,cliPath,onStage=()=>{}}={}){
   if(!local||typeof cliPath!=="string"||!cliPath)
     throw new Error("community_local_entry_required");
+  const blocked=detectUnmigratedBetaInstallation();
+  if(blocked)throw new Error(blocked);
   const runtime=await installRuntime({local:true,cliPath});
   onStage("runtime_installed");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});

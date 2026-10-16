@@ -12,7 +12,7 @@ import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setu
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
 import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
-import { installProduct, installOpenClientProduct, installStatus } from "./install.js";
+import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation } from "./install.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from "./update.js";
 import { inspectProjectRef, listProjects } from "./projects.js";
@@ -176,6 +176,12 @@ function printHuman(result) {
 
 if (command === "install") {
   if (isOpenClientDistribution()) {
+    const legacyBetaBlock=detectUnmigratedBetaInstallation();
+    if(legacyBetaBlock){
+      if(json)print({installed:false,errorCode:legacyBetaBlock});
+      console.error("Existing Beta installation preserved. Verified Cloud identity migration is required before upgrading; Beta remains unchanged.");
+      process.exit(2);
+    }
     if (args.includes("--no-telemetry")) {
       console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Use telemetry off later to stop collection AND analysis.");
       process.exit(2);

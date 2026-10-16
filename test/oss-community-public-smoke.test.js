@@ -53,6 +53,19 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(questions.questions.readiness.certification,false);
  assert.equal(questions.standardsBasis.complianceAssessed,false);
  assert.deepEqual(questions.presentationBudget,{maxPriorities:2,extraScans:0,modelCalls:0});
+ // A source checkout/install over active legacy Beta must refuse before
+ // writing runtime pointers or Agent integration, without reading the bearer.
+ const legacyMetadata=path.join(app,"cloud","client.json");
+ const legacyContent='{"schemaVersion":1,"legacyBeta":true}';
+ fs.mkdirSync(path.dirname(legacyMetadata),{recursive:true});
+ fs.writeFileSync(legacyMetadata,legacyContent);
+ const betaBlocked=run("install","--codex","--json");
+ assert.equal(betaBlocked.status,2);
+ assert.equal(JSON.parse(betaBlocked.stdout).errorCode,"legacy_beta_upgrade_requires_verified_handoff");
+ assert.equal(fs.readFileSync(legacyMetadata,"utf8"),legacyContent);
+ assert.equal(fs.existsSync(path.join(app,"runtime","current.json")),false);
+ assert.equal(fs.existsSync(path.join(home,".codex","config.toml")),false);
+ fs.rmSync(legacyMetadata);
  const install=run("install","--codex","--json");
  assert.equal(install.status,0,install.stderr?.slice(0,600));
  const result=JSON.parse(install.stdout);
