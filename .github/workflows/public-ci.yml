@@ -86,6 +86,25 @@ jobs:
         shell: bash
         run: |
           node --input-type=module -e "import Parser from 'tree-sitter'; import JS from 'tree-sitter-javascript'; const p = new Parser(); p.setLanguage(JS); const n = p.parse('const x = 1;').rootNode; if (n.type !== 'program' || (typeof n.hasError === 'function' ? n.hasError() : n.hasError === true)) process.exit(1)"
+      - name: Native Windows PowerShell 5.1 / DPAPI round-trip
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'powershell_5_1_required' }
+          Add-Type -AssemblyName System.Security
+          $plain = [System.Text.Encoding]::UTF8.GetBytes('vibe-monitor-native-dpapi-check')
+          $entropy = [System.Text.Encoding]::UTF8.GetBytes('vibe-monitor-qa-entropy')
+          $encrypted = [System.Security.Cryptography.ProtectedData]::Protect(
+            $plain, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+          )
+          $restored = [System.Security.Cryptography.ProtectedData]::Unprotect(
+            $encrypted, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+          )
+          if ([System.Text.Encoding]::UTF8.GetString($restored) -ne 'vibe-monitor-native-dpapi-check') {
+            throw 'dpapi_round_trip_failed'
+          }
+          Write-Output 'NATIVE_WINDOWS_DPAPI_PASS'
       - name: Offline source scan, install/uninstall, and privacy contracts
         run: npm test
       - name: Build CLI and scanner worker
