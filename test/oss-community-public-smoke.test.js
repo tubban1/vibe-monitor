@@ -130,10 +130,15 @@ test("unified open client performs offline scan, install and uninstall with no u
   assert.equal(status.source,"open-client");
   assert.equal(status.reason,"signed_update_channel_not_configured");
  }
- for(const action of ["stage","activate","rollback"]){
+ const unsignedUpdateErrors={
+  stage:"signed_update_channel_not_configured",
+  activate:"no_staged_update",
+  rollback:"no_previous_runtime"
+ };
+ for(const [action,reason] of Object.entries(unsignedUpdateErrors)){
   const mutation=run("update",action,"--json");
   assert.equal(mutation.status,2,"Unsigned open-client update "+action+" must fail closed");
-  assert.match(mutation.stderr,/signed_update_channel_not_configured/);
+  assert.match(mutation.stderr,new RegExp(reason));
  }
  assert.equal(fs.existsSync(path.join(app,"updates")),false,
   "Open-client legacy updater must not persist update state");

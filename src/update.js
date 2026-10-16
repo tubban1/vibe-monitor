@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution } from "./distribution.js";
+import { telemetryStatus } from "./telemetry.js";
 import {
   cloudStatus,
   fetchRemotePolicy,
@@ -65,6 +66,86 @@ export function verifyFreeUpdateEnvelope(e,{keys=null,now=Date.now,minRevision=0
      !crypto.verify(null,Buffer.from(JSON.stringify(p)),key,Buffer.from(e.signature,"base64url")))return null;
   return Object.freeze({...p,keyId:e.keyId});
  }catch{return null;}
+}
+
+const MAX_SIGNED_MANIFEST_BYTES=16384;
+const MAX_SIGNED_MANIFEST_CHUNKS=512;
+const publicUpdateTrustReady=()=>[
+ FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM
+].some(x=>typeof x==="string");
+export async function fetchVerifiedFreeUpdateManifest({
+ fetchImpl=globalThis.fetch,now=Date.now,publicKeysById=null,minRevision=0
+}={}){
+ const keys=publicKeysById||{
+  [FREE_UPDATE_KEY_ID]:FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,
+  [FREE_UPDATE_NEXT_KEY_ID]:FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM
+ };
+ if(typeof fetchImpl!=="function"||!Object.values(keys).some(x=>typeof x==="string"))
+  return {manifest:null,reason:"signed_update_channel_not_configured"};
+ try{
+  const response=await fetchImpl(FREE_UPDATE_MANIFEST_URL,{
+   method:"GET",headers:{accept:"application/json"},redirect:"error",
+   cache:"no-store",signal:AbortSignal.timeout(5000)
+  });
+  if(!response?.ok||response.redirected)return {manifest:null,reason:"signed_update_manifest_unavailable"};
+  const declared=Number(response.headers?.get?.("content-length")||0);
+  if(!Number.isSafeInteger(declared)||declared>MAX_SIGNED_MANIFEST_BYTES)
+   return {manifest:null,reason:"signed_update_manifest_invalid"};
+  let raw;
+  if(response.body&&typeof response.body.getReader==="function"){
+   const reader=response.body.getReader();let count=0,chunks=0,parts=[];
+   try{
+    while(true){
+     const {done,value}=await reader.read();if(done)break;
+     if(!(value instanceof Uint8Array)||++chunks>MAX_SIGNED_MANIFEST_CHUNKS||
+        count+value.byteLength>MAX_SIGNED_MANIFEST_BYTES)
+      throw Error("signed_update_manifest_invalid");
+     count+=value.byteLength;parts.push(Buffer.from(value));
+    }
+    raw=Buffer.concat(parts,count).toString("utf8");
+   }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
+  }else{
+   raw=await response.text();
+   if(Buffer.byteLength(raw)>MAX_SIGNED_MANIFEST_BYTES)
+    throw Error("signed_update_manifest_invalid");
+  }
+  const manifest=verifyFreeUpdateEnvelope(JSON.parse(raw),{keys,now,minRevision});
+  return manifest?{manifest,reason:null}:{manifest:null,reason:"signed_update_manifest_invalid"};
+ }catch{return {manifest:null,reason:"signed_update_manifest_unavailable"};}
+}
+function freeUpdateEligible(manifest){
+ const installationId=telemetryStatus().installationId;
+ return Boolean(installationId)&&updateEligibility({
+  enabled:true,rolloutPercent:manifest.rolloutPercent,
+  rolloutSalt:manifest.rolloutSalt
+ },installationId);
+}
+// Do not delay each short-lived Agent call on a Cloud request.
+// Staging always forces a fresh signature verification.
+const FREE_MANIFEST_CHECK_COOLDOWN_MS=15*60_000;
+let freeManifestMemory=null;
+async function currentSignedFreeUpdate({refresh=false}={}){
+ if(!publicUpdateTrustReady())return {manifest:null,reason:"signed_update_channel_not_configured"};
+ const now=Date.now();
+ const state=readUpdateState();
+ if(!refresh&&freeManifestMemory&&
+    now-freeManifestMemory.checkedAt<FREE_MANIFEST_CHECK_COOLDOWN_MS&&
+    freeManifestMemory.manifest.expiresAt*1000>now)
+  return {manifest:freeManifestMemory.manifest,reason:null};
+ const previousAttempt=Date.parse(state.freeManifestLastAttemptAt||"");
+ if(!refresh&&Number.isFinite(previousAttempt)&&
+    previousAttempt<=now&&now-previousAttempt<FREE_MANIFEST_CHECK_COOLDOWN_MS)
+  return {manifest:null,reason:"signed_update_check_deferred"};
+ writeUpdateState({freeManifestLastAttemptAt:new Date(now).toISOString()});
+ const floor=Number.isSafeInteger(state.freeManifestRevision)?state.freeManifestRevision:0;
+ const got=await fetchVerifiedFreeUpdateManifest({minRevision:floor});
+ if(!got.manifest)return got;
+ if(state.freeManifestVersion&&compareVersions(got.manifest.version,state.freeManifestVersion)<0)
+  return {manifest:null,reason:"signed_update_rollback_rejected"};
+ writeUpdateState({freeManifestRevision:got.manifest.revision,
+  freeManifestVersion:got.manifest.version,lastCheckAt:new Date().toISOString()});
+ freeManifestMemory={manifest:got.manifest,checkedAt:now};
+ return got;
 }
 
 const MAX_UPDATE_ARTIFACT_BYTES = 25 * 1024 * 1024;
@@ -226,8 +307,8 @@ function failureCode(error) {
   return known.find(code => value.startsWith(code)) || "update_failed";
 }
 
-async function fetchArtifact(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+async function fetchArtifact(url,{requireNoRedirect=false}={}) {
+  const response = await fetch(url, { redirect: requireNoRedirect?"error":"follow", signal: AbortSignal.timeout(60_000) });
   if (!response.ok) throw new Error("update_download_failed:" + response.status);
   const declared = Number(response.headers.get("content-length") || 0);
   if (Number.isFinite(declared) && declared > MAX_UPDATE_ARTIFACT_BYTES) {
@@ -279,32 +360,24 @@ export async function readBoundedUpdateArtifact(response) {
 export async function updateStatus({ refresh = false } = {}) {
   // The public client has no signed artifact-release trust root yet. Never query
   // the legacy private-Beta update endpoint or advertise its candidates.
-  if (isOpenClientDistribution()) return {
-    currentVersion: currentRuntimeVersion(),
-    previousVersion: readRuntimePointer("previous")?.version || null,
-    stagedVersion: null,
-    activateOnNextStart: false,
-    channel: "unconfigured",
-    updateEnabled: false,
-    eligible: false,
-    latestVersion: null,
-    minimumVersion: null,
-    available: false,
-    belowMinimum: false,
-    critical: false,
-    autoStage: false,
-    autoActivate: "manual",
-    artifactReady: false,
-    lastCheckAt: null,
-    lastStageAt: null,
-    lastRollbackAt: null,
-    lastRollbackReason: null,
-    lastFailureAt: null,
-    lastFailureReason: null,
-    quarantined: false,
-    source: "open-client",
-    reason: "signed_update_channel_not_configured"
-  };
+  if(isOpenClientDistribution()){
+    const {manifest:m,reason}=await currentSignedFreeUpdate({refresh});
+    const state=readUpdateState(),current=currentRuntimeVersion();
+    const eligible=m?freeUpdateEligible(m):false;
+    return {
+      currentVersion:current,previousVersion:readRuntimePointer("previous")?.version||null,
+      stagedVersion:state.stagedVersion||null,activateOnNextStart:state.activateOnNextStart===true,
+      channel:m?"stable":"unconfigured",updateEnabled:!!m,eligible,
+      latestVersion:m?.version||null,minimumVersion:null,
+      available:!!m&&eligible&&compareVersions(m.version,current)>0,
+      belowMinimum:false,critical:false,autoStage:false,autoActivate:"manual",
+      artifactReady:!!m,lastCheckAt:state.lastCheckAt||null,lastStageAt:state.lastStageAt||null,
+      lastRollbackAt:state.lastRollbackAt||null,lastRollbackReason:state.lastRollbackReason||null,
+      lastFailureAt:state.lastFailureAt||null,lastFailureReason:state.lastFailureReason||null,
+      quarantined:!!m&&(state.quarantinedVersions||[]).includes(m.version),
+      source:m?"signed-free-update":"open-client",reason
+    };
+  }
   const remote = await fetchRemotePolicy({ force: refresh });
   const cloud = cloudStatus();
   const rawUpdate = remote?.update || cloud.update || {};
@@ -357,8 +430,18 @@ export async function stageUpdate({
 } = {}) {
   // A checksum alone cannot authorize code execution: never accept a supplied
   // policy, legacy Beta token or update URL in the unsigned public client.
-  if (isOpenClientDistribution()) throw new Error("signed_update_channel_not_configured");
-  const remote = policy
+  if(isOpenClientDistribution()&&(policy||force))
+    throw new Error("signed_update_override_forbidden");
+  const signed=isOpenClientDistribution()?await currentSignedFreeUpdate({refresh:true}):null;
+  if(isOpenClientDistribution()&&!signed.manifest)
+    throw new Error(signed.reason||"signed_update_manifest_invalid");
+  const m=signed?.manifest||null;
+  const remote = m?{
+    source:"signed-free-update",
+    update:{enabled:true,channel:"stable",latestVersion:m.version,
+      rolloutPercent:m.rolloutPercent,rolloutSalt:m.rolloutSalt,
+      autoStage:false,autoActivate:"disabled",artifact:m.artifact}
+  }:policy
     ? {
         source: "provided",
         update: {
@@ -369,9 +452,9 @@ export async function stageUpdate({
     : await fetchRemotePolicy({ force: true });
   const rawUpdate = remote?.update || {};
   const update = sanitizeUpdatePolicy(rawUpdate);
-  const cloud = cloudStatus();
-  const eligible = rawUpdate?.eligible === true ||
-    updateEligibility(update, cloud.installationId || null);
+  const cloud=m?null:cloudStatus();
+  const eligible=m?freeUpdateEligible(m):rawUpdate?.eligible===true||
+    updateEligibility(update,cloud.installationId||null);
   const currentVersion = currentRuntimeVersion();
   const checkedAt = new Date().toISOString();
 
@@ -424,7 +507,7 @@ export async function stageUpdate({
     tempDir = fs.mkdtempSync(path.join(stagingDir, "download-"));
     const artifactFile = path.join(tempDir, "vibe-monitor-" + update.latestVersion + ".tgz");
 
-    const artifact = await fetchArtifact(update.artifact.url);
+    const artifact = await fetchArtifact(update.artifact.url,{requireNoRedirect:Boolean(m)});
     const actualSha256 = crypto.createHash("sha256").update(artifact).digest("hex");
     if (actualSha256 !== update.artifact.sha256) {
       throw new Error("update_artifact_checksum_mismatch");
@@ -636,9 +719,11 @@ export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
 }
 
 export function activateStagedUpdate() {
-  if (isOpenClientDistribution()) throw new Error("signed_update_channel_not_configured");
   const state = readUpdateState();
   if (!state.stagedVersion) throw new Error("no_staged_update");
+  if(isOpenClientDistribution()&&(!state.stagedArtifactSha256||
+     !fs.existsSync(runtimeVersionEntry(state.stagedVersion))))
+   throw new Error("signed_staged_runtime_missing");
   return writeUpdateState({
     activateOnNextStart: true,
     activationRequestedAt: new Date().toISOString()
@@ -646,7 +731,10 @@ export function activateStagedUpdate() {
 }
 
 export function rollbackUpdate() {
-  if (isOpenClientDistribution()) throw new Error("signed_update_channel_not_configured");
+  // An unconfigured Free client must never create updater state simply because
+  // an Agent invoked rollback without a previous verified runtime.
+  if(isOpenClientDistribution()&&!readRuntimePointer("previous"))
+    throw new Error("no_previous_runtime");
   const releaseLock = acquireUpdateLock("activation");
   try {
     const current = readRuntimePointer("current");
