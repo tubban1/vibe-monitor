@@ -37,14 +37,10 @@ test("Unified open client has Apache-2.0 license, reproducible deps, and safe re
  assert.equal(pkg.version,lock.packages[""].version);
  assert.deepEqual(pkg.dependencies,lock.packages[""].dependencies);
  assert.match(license,/Apache License\s+Version 2\.0, January 2004/);
- if(pkg.private){
-  assert.equal(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,null,
-   "prerelease source preview must not pretend Cloud signatures are production-ready");
-  assert.equal(COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,null);
- }else{
-  assert.ok(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,
-   "published client must pin its production Cloud policy verification key");
- }
+ assert.match(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,/^-----BEGIN PUBLIC KEY-----/);
+ assert.equal(crypto.createPublicKey(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM).asymmetricKeyType,"ed25519");
+ assert.equal(COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,null);
+
 });
 test("agent MCP fallback pins exact installed version and official registry",async()=>{
  const {runtimeSpec}=await import("../src/setup.js");
