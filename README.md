@@ -1,5 +1,8 @@
 # Vibe Monitor
 
+> [!WARNING]
+> **Release hold — v1.0.0 withdrawn (2026-10-18).** Do not install or upgrade to \`@vibe-monitor/setup@1.0.0\`. The stable release failed a Beta-vs-stable data/upgrade-contract parity review. The GitHub release is hidden and future stable publishing is blocked. npm registry withdrawal is pending owner-authenticated action; the package may still be installable until npm is updated. **Existing Beta installations and their \`events\` history remain supported and unchanged.** No replacement stable version is approved.
+
 **AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 
 **AI ships code fast. It can build spaghetti code even faster. Vibe Monitor helps your coding agent spot architectural trouble before it gets expensive.**
@@ -31,15 +34,9 @@ Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
 [Full Agent evaluation flow and report template →](docs/AGENT_EVALUATION.md)
 
-## Install Vibe Monitor 1.0.0
+## Installation (stable release temporarily suspended)
 
-Vibe Monitor is one open-source client, available for macOS, Windows and Linux. Install the public stable package when the official release is published:
-
-```bash
-npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@1.0.0 install
-```
-
-The command above cannot run from npm until version 1.0.0 is published. The source branch and GitHub Actions release gate are not substitutes for publication.
+Vibe Monitor's 1.0.0 official distribution is suspended. **Do not run previously published \`npx @vibe-monitor/setup@1.0.0 install\` or use the \`latest\` tag.** No replacement stable version is approved. Existing Beta users should keep their current installation unchanged until a tested Beta-to-stable handoff is announced.
 
 ### Architecture policies
 
@@ -51,7 +48,7 @@ Telemetry collects bounded, pseudonymous product usage, architecture signals and
 
 Product events are uploaded separately through `POST /free/telemetry` only when the production gateway and Neon intake are enabled. This intake has independent rate-limiting, bounded payload validation and an origin shared secret; a successful policy fetch does not imply telemetry acceptance. Unsigned or unavailable Cloud policy falls back to the minimal local rules.
 
-The signed Cloud strategy and telemetry intake were both verified live on 2026-10-18, including one synthetic write to the unified `telemetry_events` table (removed after verification). The npm stable version is still awaiting publication. Cloud telemetry records have no automatic TTL or scheduled purge; scoped legal erasure requires a separate auditable process. The database is in AWS Singapore. Linkable pseudonymous identifiers may qualify as personal data; privacy approval for public release is a separate step.
+The signed Cloud strategy and telemetry intake were both verified live on 2026-10-18, including one synthetic write to the unified `telemetry_events` table (removed after verification). The npm 1.0.0 package was published and has been withdrawn from public promotion pending npm-owner registry action. Cloud telemetry records have no automatic TTL or scheduled purge; scoped legal erasure requires a separate auditable process. The database is in AWS Singapore. Linkable pseudonymous identifiers may qualify as personal data; privacy approval for public release is a separate step.
 
 [Privacy & Data Practices](docs/governance/TELEMETRY_PRIVACY_V1.md)
 
