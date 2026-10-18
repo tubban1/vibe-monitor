@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "build": "esbuild src/cli.js --bundle --packages=external --platform=node --format=esm --target=node20 --minify --legal-comments=none --outfile=dist/vibe-monitor.mjs && esbuild src/scan-worker.js --bundle --packages=external --platform=node --format=esm --target=node20 --minify --legal-comments=none --outfile=dist/vibe-monitor-scan-worker.mjs",
-    "test": "node --test test/oss-community-public-contract.test.js test/oss-community-public-smoke.test.js test/oss-source-history-audit.test.js test/oss-agent-ownership.test.js test/cloud-owned-rulepack.test.js test/free-telemetry-auto-drain.test.js",
+    "test": "node --test test/oss-community-public-contract.test.js test/oss-community-public-smoke.test.js test/oss-source-history-audit.test.js test/oss-agent-ownership.test.js test/cloud-owned-rulepack.test.js test/free-telemetry-auto-drain.test.js test/free-telemetry-quality-parity.test.js",
     "prepack": "npm run build"
   },
   "dependencies": {

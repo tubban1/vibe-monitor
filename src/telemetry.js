@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {encodeEvidenceQuality} from "./telemetry-quality.js";
 import fs from "node:fs";
 import path from "node:path";
 import { CLIENT_VERSION, EVIDENCE_VERSION } from "./constants.js";
@@ -262,7 +263,7 @@ function findingPayload(finding) {
   return {
     score: Number.isFinite(finding?.score) ? Math.round(finding.score) : null,
     confidence: Number.isFinite(finding?.confidence) ? Number(finding.confidence.toFixed(2)) : null,
-    evidenceQuality: safeEnum(finding?.evidenceQuality, 64),
+    evidenceQuality: encodeEvidenceQuality(finding?.evidenceQuality),
     supportingSignalCount: Array.isArray(finding?.signals) ? finding.signals.length : 0,
     signals: (finding?.signals || []).map(safeSignal).filter(Boolean).slice(0, 24),
     actionMode: classifyActionMode(finding),
@@ -899,11 +900,14 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
    const v=enumValue(e.payload?.[k]);if(v!==null)payload[k]=v;
   }
   for(const k of ["durationMs","wallTimeMs","fullScanCount","cachedCheckCount",
-   "deferredCheckCount","score","confidence","suppressedCount","maxNotices"]){
+   "deferredCheckCount","score","suppressedCount","maxNotices"]){
    const v=e.payload?.[k];
    if(typeof v==="number"&&Number.isFinite(v)&&v>=0&&v<=3_600_000)
      payload[k]=Math.round(v);
   }
+  if(typeof e.payload?.confidence==="number"&&Number.isFinite(e.payload.confidence)&&
+     e.payload.confidence>=0&&e.payload.confidence<=1)
+    payload.confidence=Math.round(e.payload.confidence*100)/100;
   if(typeof e.payload?.projectChanged==="boolean")
    payload.projectChanged=e.payload.projectChanged;
   // Beta V4 signal/intent/timing parity, still enums and numbers only.
@@ -953,9 +957,8 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
       const v=enumValue(signal?.[k]);if(v!==null)out[k]=v;
      }return out;
     });
-  for(const k of ["evidenceQuality"]){
-   const v=enumValue(e.payload?.[k]);if(v!==null)payload[k]=v;
-  }
+  const eq=encodeEvidenceQuality(e.payload?.evidenceQuality);
+  if(eq!==null)payload.evidenceQuality=eq;
   if(Number.isSafeInteger(e.payload?.supportingSignalCount)&&
      e.payload.supportingSignalCount>=0&&e.payload.supportingSignalCount<=100)
    payload.supportingSignalCount=e.payload.supportingSignalCount;
