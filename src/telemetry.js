@@ -906,6 +906,70 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
   }
   if(typeof e.payload?.projectChanged==="boolean")
    payload.projectChanged=e.payload.projectChanged;
+  // Beta V4 signal/intent/timing parity, still enums and numbers only.
+  const timingKeys=new Set(["policyMs","gitFingerprintMs","gitEvidenceMs","evidenceMs",
+   "structuralMs","monitorsMs","identityMs","historyReadMs","historyWriteMs","engineMs",
+   "cacheReadMs","toolMs","telemetryQueueMs","wallTimeMs"]);
+  for(const key of ["phaseTimings","timings"]){
+   const item=e.payload?.[key];if(item&&typeof item==="object"&&!Array.isArray(item)){
+    const safe={};
+    for(const [k,v] of Object.entries(item)){
+     if(timingKeys.has(k)&&Number.isSafeInteger(v)&&v>=0&&v<=3600000)safe[k]=v;
+    }
+    payload[key]=safe;
+   }
+  }
+  for(const key of ["intent","inferredIntent","intentProvenance"]){
+   const item=e.payload?.[key];if(item&&typeof item==="object"&&!Array.isArray(item)){
+    const safe={};
+    for(const [k,v] of Object.entries(item)){
+     if(!INTENT_FIELDS[k])continue;
+     if(key==="intentProvenance"?
+       ["explicit","inferred","unknown"].includes(v):INTENT_FIELDS[k].includes(v))safe[k]=v;
+    }
+    payload[key]=safe;
+   }
+  }
+  if(e.payload?.call&&typeof e.payload.call==="object"){
+   const call={};
+   for(const key of ["event","monitoringMode"]){
+    const v=enumValue(e.payload.call[key]);if(v!==null)call[key]=v;
+   }
+   payload.call=call;
+  }
+  if(e.payload?.structural&&e.event==="scan.observed"){
+   const structural={},input=e.payload.structural;
+   const mode=enumValue(input.mode);if(mode!==null)structural.mode=mode;
+   for(const k of ["candidateFiles","analyzedFiles","skippedByBudget","parserErrors","durationMs"]){
+    const n=input[k];if(Number.isSafeInteger(n)&&n>=0&&n<=3600000)structural[k]=n;
+   }
+   if(Array.isArray(input.languages))structural.languages=input.languages
+      .map(enumValue).filter(Boolean).slice(0,12);
+   payload.structural=structural;
+  }
+  if(Array.isArray(e.payload?.signals))payload.signals=e.payload.signals.slice(0,24)
+    .map(signal=>{
+     const out={};for(const k of ["name","bucket","valueBucket","independenceGroup"]){
+      const v=enumValue(signal?.[k]);if(v!==null)out[k]=v;
+     }return out;
+    });
+  for(const k of ["evidenceQuality"]){
+   const v=enumValue(e.payload?.[k]);if(v!==null)payload[k]=v;
+  }
+  if(Number.isSafeInteger(e.payload?.supportingSignalCount)&&
+     e.payload.supportingSignalCount>=0&&e.payload.supportingSignalCount<=100)
+   payload.supportingSignalCount=e.payload.supportingSignalCount;
+  if(typeof e.payload?.semanticReviewRecommended==="boolean")
+   payload.semanticReviewRecommended=e.payload.semanticReviewRecommended;
+  if(e.payload?.lifecycle&&typeof e.payload.lifecycle==="object"){
+   const input=e.payload.lifecycle,allowed=new Set(["codex","claude","cursor","antigravity","trae"]);
+   const agents=Array.isArray(input.agents)?[...new Set(input.agents.filter(x=>allowed.has(x)))].slice(0,5):[];
+   const remainingAgents=Array.isArray(input.remainingAgents)?
+       [...new Set(input.remainingAgents.filter(x=>allowed.has(x)))].slice(0,5):[];
+   if(["full","partial"].includes(input.scope))payload.lifecycle={
+    scope:input.scope,agents,remainingAgents,reusedActivation:input.reusedActivation===true};
+  }
+
   if(/^[a-f0-9]{32}$/i.test(e.payload?.outcomeRef||""))
    payload.outcomeRef=e.payload.outcomeRef;
   if(e.event==="scan.observed"&&e.payload?.architectureProfile){
@@ -918,14 +982,27 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
   }
   const boundedUuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value||"")?value:null;
   const boundedPseudonym=value=>/^[a-f0-9]{32}$/i.test(value||"")?value:null;
+  const stageValue=value=>/^S[1-5]$/.test(value||"")?value:null;
+  const boundedMetric=(value,max=3600000)=>Number.isSafeInteger(value)&&value>=0&&value<=max?value:null;
   const boundedInt=value=>Number.isSafeInteger(value)&&value>=1&&value<=1000000?value:null;
   const out={schemaVersion:4,eventId:e.eventId,installationId:e.installationId,
    event:e.event,at:e.at,clientVersion:CLIENT_VERSION,
-   projectId:boundedPseudonym(e.projectId),findingId:boundedPseudonym(e.findingId),
+   projectId:boundedPseudonym(e.projectId),
+   repoId:boundedPseudonym(e.repoId),projectInstanceId:boundedPseudonym(e.projectInstanceId),
+   findingId:boundedPseudonym(e.findingId),
    sessionId:boundedUuid(e.sessionId),callId:boundedUuid(e.callId),scanId:boundedUuid(e.scanId),
    family:enumValue(e.family),evidenceVersion:boundedInt(e.evidenceVersion),
    policyRevision:boundedInt(e.policyRevision),
-   agent:enumValue(e.agent),stage:enumValue(e.stage),payload};
+   agent:enumValue(e.agent),stage:stageValue(e.stage),
+   fromStage:stageValue(e.fromStage),toStage:stageValue(e.toStage),
+   attentionRequired:typeof e.attentionRequired==="boolean"?e.attentionRequired:null,
+   findingCount:boundedMetric(e.findingCount),attentionCount:boundedMetric(e.attentionCount),
+   durationMs:boundedMetric(e.durationMs),monitoringMode:enumValue(e.monitoringMode),
+   monitoringWallTimeMs:boundedMetric(e.monitoringWallTimeMs),
+   scannerOverheadPct:typeof e.scannerOverheadPct==="number"&&
+    Number.isFinite(e.scannerOverheadPct)&&e.scannerOverheadPct>=0&&
+    e.scannerOverheadPct<=100?e.scannerOverheadPct:null,
+   verdict:enumValue(e.verdict),actionMode:enumValue(e.actionMode),payload};
   return Buffer.byteLength(JSON.stringify(out))<=4096?out:null;
  }).filter(Boolean);
 }

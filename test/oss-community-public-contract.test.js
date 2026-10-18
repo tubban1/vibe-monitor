@@ -374,3 +374,35 @@ test("Free on-by-default queue is separate from old Beta, bounded and opt-out pu
  assert.equal(initializeFreeTelemetry().enabled,false,"explicit Free opt-out survives restart");
  assert.equal(fs.readFileSync(path.join(betaDir,"config.json"),"utf8"),old);
 });
+
+test("Future open client preserves Beta telemetry intelligence as bounded data",{
+ skip:!staged?"OSS-only wire":false
+},()=>{
+ const item={schemaVersion:4,eventId:crypto.randomUUID(),installationId:crypto.randomUUID(),
+  event:"scan.observed",at:new Date().toISOString(),projectId:"a".repeat(32),
+  repoId:"b".repeat(32),projectInstanceId:"c".repeat(32),findingId:"d".repeat(32),
+  family:"code-structure",agent:"codex",stage:"S4",fromStage:"S5",toStage:"S4",
+  attentionRequired:true,findingCount:11,attentionCount:4,durationMs:140,
+  monitoringMode:"full",monitoringWallTimeMs:142,scannerOverheadPct:0.3,
+  policyRevision:2,actionMode:"next-change-watch",
+  payload:{sourceFilesBucket:"21-50",phaseTimings:{engineMs:77,identityMs:5},
+   intent:{delivery:"hosted",audience:"public"},
+   inferredIntent:{delivery:"hybrid"},
+   intentProvenance:{delivery:"explicit",audience:"inferred"},
+   structural:{mode:"full",candidateFiles:30,analyzedFiles:28,languages:["javascript"]},
+   signals:[{name:"dependency_cycle",bucket:"1-2",independenceGroup:"imports"}],
+   supportingSignalCount:1,semanticReviewRecommended:false,
+   source:"const secret='no'",prompt:"private",path:"/Users/private/project"}};
+ const [wire]=freeTelemetryWireBatch([item]);
+ assert.equal(wire.stage,"S4");assert.equal(wire.fromStage,"S5");
+ assert.equal(wire.toStage,"S4");assert.equal(wire.attentionRequired,true);
+ assert.equal(wire.findingCount,11);assert.equal(wire.attentionCount,4);
+ assert.equal(wire.monitoringWallTimeMs,142);assert.equal(wire.scannerOverheadPct,0.3);
+ assert.equal(wire.repoId,"b".repeat(32));assert.equal(wire.projectInstanceId,"c".repeat(32));
+ assert.equal(wire.payload.phaseTimings.identityMs,5);
+ assert.equal(wire.payload.intentProvenance.audience,"inferred");
+ assert.equal(wire.payload.structural.analyzedFiles,28);
+ assert.equal(wire.payload.signals[0].name,"dependency_cycle");
+ assert.ok(Buffer.byteLength(JSON.stringify(wire))<=4096);
+ assert.doesNotMatch(JSON.stringify(wire),/secret|private|\/Users\//);
+});
