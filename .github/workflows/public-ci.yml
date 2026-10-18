@@ -15,6 +15,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  windows-installer-parse:
+    name: Windows PowerShell 5.1 single-version installer syntax
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Parse without execution
+        shell: powershell
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Requires Windows PowerShell 5.1' }
+          $tokens = $null
+          $parseErrors = $null
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/qa-windows-antigravity-rc.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $scriptPath, [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Output $_.ToString() }
+            throw 'Windows QA installer PowerShell syntax invalid'
+          }
+          Write-Output 'WINDOWS_POWERSHELL_51_PARSE_PASS'
+
   public-surface:
     name: Public repository boundary (Ubuntu)
     outputs:
@@ -86,21 +110,6 @@ jobs:
         shell: bash
         run: |
           node --input-type=module -e "import Parser from 'tree-sitter'; import JS from 'tree-sitter-javascript'; const p = new Parser(); p.setLanguage(JS); const n = p.parse('const x = 1;').rootNode; if (n.type !== 'program' || (typeof n.hasError === 'function' ? n.hasError() : n.hasError === true)) process.exit(1)"
-      - name: Parse Windows single-version installer with native PowerShell 5.1
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          $tokens = $null
-          $parseErrors = $null
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/qa-windows-antigravity-rc.ps1'
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            $scriptPath, [ref]$tokens, [ref]$parseErrors
-          ) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object { Write-Output $_.ToString() }
-            throw 'PowerShell 5.1 installer script has syntax errors'
-          }
-          Write-Output 'WINDOWS_POWERSHELL_51_PARSE_PASS'
       - name: Native Windows PowerShell 5.1 / DPAPI round-trip
         if: matrix.os == 'windows-latest'
         shell: powershell
