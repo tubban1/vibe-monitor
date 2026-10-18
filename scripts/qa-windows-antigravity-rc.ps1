@@ -1,62 +1,145 @@
-# Windows PowerShell 5.1; requires Git, Node.js, npm. Does not touch Beta.41.
+# Windows Vibe Monitor: ONE installed RC; remove obsolete QA copies only after verified replacement.
+# Run in Windows PowerShell 5.1+. Requires Git, Node, npm. Never deletes source projects outside the QA allowlist.
 [CmdletBinding()]
-param([string]$Workspace="$env:USERPROFILE\mcp-workspace",[switch]$SkipAntigravityConfig)
-$ErrorActionPreference="Stop"
-$baseCommit="fbf260c"
-$source=Join-Path $Workspace "vibe-rc-win-antigravity-20261018"
-$qa=Join-Path $Workspace "vibe-rc-win-antigravity-isolated-20261018"
-function CheckExit([string]$what){if($LASTEXITCODE -ne 0){throw "$what failed: $LASTEXITCODE"}}
-New-Item -ItemType Directory -Force $Workspace | Out-Null
-if(-not(Test-Path $source)){
-  git clone --depth 5 --branch fix/rc-prod-precision-20261018 https://github.com/tubban1/vibe-monitor.git $source
-  CheckExit "Git clone"
+param([string]$Workspace = "$env:USERPROFILE\mcp-workspace")
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+$expected = "fbf260c"
+$branch = "fix/rc-prod-precision-20261018"
+$version = "1.0.1-rc.0"
+$install = Join-Path $Workspace "vibe-monitor"
+$stage = Join-Path $env:TEMP ("vibe-monitor-upgrade-"+[guid]::NewGuid().ToString("N"))
+$source = Join-Path $stage "source"
+$archiveDir = Join-Path $stage "archive"
+$newPackage = Join-Path $stage "installed"
+$configPath = Join-Path $env:USERPROFILE ".gemini\config\mcp_config.json"
+$state = Join-Path $env:USERPROFILE ".vibe-monitor"
+$node = (Get-Command node.exe -ErrorAction Stop).Source
+function CheckExit([string]$description) {
+  if ($LASTEXITCODE -ne 0) { throw "$description failed; exit=$LASTEXITCODE" }
 }
-if(-not(Test-Path (Join-Path $source ".git"))){throw "Existing test path is not a Git checkout; won't overwrite"}
-git -C $source merge-base --is-ancestor $baseCommit HEAD
-CheckExit "Verified RC ancestor"
-$changes=@(git -C $source diff --name-only $baseCommit HEAD | Where-Object { $_ -and ($_ -notmatch '^scripts/qa-windows-antigravity-') })
-if($changes.Count){throw "Unexpected changes beyond QA scripts: $($changes -join ',')"}
-$dirty=@(git -C $source status --porcelain)
-if($dirty.Count){throw "QA source dirty; refusing overwrite"}
-Set-Location $source
-npm.cmd ci --no-audit --no-fund; CheckExit "npm ci"
-npm.cmd test; CheckExit "npm test"
-npm.cmd run build; CheckExit "npm build"
-foreach($name in @("artifacts","installed","ag-home","ag-appdata","ag-localappdata","ag-state","reports","synthetic-project")){
-  New-Item -ItemType Directory -Force (Join-Path $qa $name) | Out-Null
+New-Item -ItemType Directory -Path @($stage,$archiveDir,$Workspace) -Force | Out-Null
+$finished = $false
+try {
+  git clone --depth 10 --branch $branch "https://github.com/tubban1/vibe-monitor.git" $source
+  CheckExit "Clone"
+  git -C $source checkout --detach $expected
+  CheckExit "Checkout exact vetted RC"
+  if ((& git -C $source rev-parse --short HEAD).Trim() -ne $expected) { throw "Unexpected RC source" }
+  Push-Location $source
+  try {
+    npm.cmd ci --no-audit --no-fund; CheckExit "npm ci"
+    npm.cmd test; CheckExit "RC tests"
+    npm.cmd run build; CheckExit "RC build"
+    npm.cmd pack --pack-destination $archiveDir; CheckExit "RC pack"
+  } finally { Pop-Location }
+  $archive = Join-Path $archiveDir "vibe-monitor-setup-1.0.1-rc.0.tgz"
+  if(-not(Test-Path $archive)){throw "Expected archive not found"}
+  npm.cmd install --prefix $newPackage --no-audit --no-fund $archive
+  CheckExit "Install exactly one RC"
+  $newEntry = Join-Path $newPackage "node_modules\@vibe-monitor\setup\dist\vibe-monitor.mjs"
+  if(-not(Test-Path $newEntry)){throw "New runtime missing"}
+  $actual = (& $node $newEntry --version | Out-String).Trim()
+  if($actual -notmatch [regex]::Escape($version)){throw "New runtime version mismatch: $actual"}
+
+  # Update one Antigravity entry, preserving other unrelated MCP providers.
+  if(-not(Test-Path $configPath)){throw "Antigravity MCP config is missing"}
+  $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if(-not $cfg.mcpServers){throw "Antigravity config has no mcpServers"}
+  $stableEntry = Join-Path $install "node_modules\@vibe-monitor\setup\dist\vibe-monitor.mjs"
+  $newEnv = @{
+    HOME=$env:USERPROFILE
+    USERPROFILE=$env:USERPROFILE
+    VIBE_MONITOR_HOME=$state
+    VIBE_MONITOR_SETUP_HOME=$env:USERPROFILE
+  }
+  $newMcp = [pscustomobject]@{
+    command=$node
+    args=@($stableEntry,"mcp","--agent","antigravity")
+    env=$newEnv
+  }
+  $configBackup = "$configPath.before-one-version-$(Get-Date -Format yyyyMMdd-HHmmss).bak"
+  Copy-Item -LiteralPath $configPath -Destination $configBackup
+
+  # Move verified runtime into the ONLY live installation path.
+  $old = $null
+  if(Test-Path $install){
+    $old = Join-Path $Workspace ("vibe-monitor-previous-"+[guid]::NewGuid().ToString("N"))
+    Move-Item -LiteralPath $install -Destination $old
+  }
+  try { Move-Item -LiteralPath $newPackage -Destination $install }
+  catch {
+    if($old -and (Test-Path $old)){Move-Item $old $install}
+    throw
+  }
+  $stableVersion = (& $node $stableEntry --version | Out-String).Trim()
+  if($stableVersion -notmatch [regex]::Escape($version)){throw "Single active runtime verification failed"}
+  # Initialize first-install telemetry; preserve existing local website-controlled settings.
+  $initFile = Join-Path $source "src\telemetry.js"
+  $env:VIBE_MONITOR_HOME = $state
+  & $node --input-type=module -e 'import {pathToFileURL} from "node:url"; const m=await import(pathToFileURL(process.argv[1]).href); m.initializeFreeTelemetry();' $initFile
+  CheckExit "Default telemetry initialization"
+
+  foreach($name in @("vibe-monitor-rc","vibe-monitor-qa")){
+    if($cfg.mcpServers.PSObject.Properties.Name -contains $name){
+      $cfg.mcpServers.PSObject.Properties.Remove($name)
+    }
+  }
+  if($cfg.mcpServers.PSObject.Properties.Name -contains "vibe-monitor"){
+    $cfg.mcpServers.'vibe-monitor' = $newMcp
+  } else {
+    $cfg.mcpServers | Add-Member -NotePropertyName 'vibe-monitor' -NotePropertyValue $newMcp
+  }
+  $text = $cfg | ConvertTo-Json -Depth 80
+  [IO.File]::WriteAllText($configPath,$text,(New-Object Text.UTF8Encoding($false)))
+  # Verify exactly one Vibe MCP entry, and the fixed RC executable.
+  $verify = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $registered = @($verify.mcpServers.PSObject.Properties.Name | Where-Object { $_ -match '^vibe-monitor($|-)' })
+  if($registered.Count -ne 1 -or $registered[0] -ne 'vibe-monitor'){
+    Copy-Item -LiteralPath $configBackup -Destination $configPath -Force
+    throw "Exactly-one MCP verification failed"
+  }
+
+  # After successful replacement, delete only known obsolete Vibe QA versions.
+  $obsolete = @(
+    "vibe-022-win-realqa-20261018",
+    "vibe-fixed-policy-qa-20261017",
+    "vibe-free-pr74-test-20261016",
+    "vibe-qa-20261015",
+    "vibe-rc-native-qa-20261017",
+    "vm-1.0.1-rc-qa",
+    "vmqa-b14-20261016",
+    "vibe-rc-win-antigravity-20261018",
+    "vibe-rc-win-antigravity-isolated-20261018"
+  )
+  $removed = @()
+  foreach($name in $obsolete){
+    $target = Join-Path $Workspace $name
+    if(Test-Path -LiteralPath $target){
+      Remove-Item -LiteralPath $target -Recurse -Force
+      $removed += $name
+    }
+  }
+  if($old -and (Test-Path $old)){Remove-Item -LiteralPath $old -Recurse -Force}
+  # Keep existing IDE launchers working, but route them to the same sole client.
+  $launcherDir = Join-Path $state "bin"
+  New-Item -ItemType Directory -Force $launcherDir | Out-Null
+  $launcher = Join-Path $launcherDir "vibe-monitor.cmd"
+  $launcherText = '@echo off' + "`r`n" + '"' + $node + '" "' + $stableEntry + '" %*' + "`r`n"
+  [IO.File]::WriteAllText($launcher,$launcherText,(New-Object Text.ASCIIEncoding))
+  # Keep the .vibe-monitor state directory, including identity and telemetry.
+  # Remove only prior managed code installs, never the user's data directory.
+  foreach($sub in @("runtime\versions","runtime\packages")){
+    $target = Join-Path $state $sub
+    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force}
+  }
+  Write-Output "SINGLE_VERSION_READY: $version"
+  Write-Output "INSTALL=$install"
+  Write-Output "ANTIGRAVITY_MCP=vibe-monitor"
+  Write-Output ("OLD_QA_DIRECTORIES_REMOVED="+$removed.Count)
+  Write-Output "Restart Antigravity to discard previously loaded MCP processes."
+  $finished = $true
+} finally {
+  if(Test-Path $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
+  if(-not $finished){Write-Warning "Single-version setup did not complete. Inspect errors before deleting anything else."}
 }
-npm.cmd pack --pack-destination (Join-Path $qa "artifacts"); CheckExit "npm pack"
-$tar=Join-Path $qa "artifacts\vibe-monitor-setup-1.0.1-rc.0.tgz"
-if(-not(Test-Path $tar)){throw "RC package archive missing"}
-npm.cmd install --prefix (Join-Path $qa "installed") --no-audit --no-fund $tar; CheckExit "Isolated npm install"
-$installed=Join-Path $qa "installed\node_modules\@vibe-monitor\setup"
-$version=(Get-Content (Join-Path $installed "package.json") -Raw | ConvertFrom-Json).version
-if($version -ne "1.0.1-rc.0"){throw "Wrong installed version"}
-$entry=Join-Path $installed "dist\vibe-monitor.mjs"
-$node=(Get-Command node.exe -ErrorAction Stop).Source
-& $node $entry --version; CheckExit "RC executable"
-& $node (Join-Path $source "scripts\qa-windows-antigravity-mcp.mjs") $entry $qa
-CheckExit "Antigravity MCP acceptance"
-if(-not $SkipAntigravityConfig){
-  $p=Join-Path $env:USERPROFILE ".gemini\config\mcp_config.json"
-  if(-not(Test-Path $p)){throw "Antigravity config not found, manual configuration needed"}
-  $config=Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
-  if(-not $config.mcpServers){throw "Unexpected Antigravity MCP config"}
-  $old=$config.mcpServers.'vibe-monitor-rc'
-  $envs=@{}
-  if($old -and $old.env){foreach($kv in $old.env.PSObject.Properties){$envs[$kv.Name]=[string]$kv.Value}}
-  $envs["HOME"]=Join-Path $qa "ag-home"
-  $envs["USERPROFILE"]=Join-Path $qa "ag-home"
-  $envs["APPDATA"]=Join-Path $qa "ag-appdata"
-  $envs["LOCALAPPDATA"]=Join-Path $qa "ag-localappdata"
-  $envs["VIBE_MONITOR_HOME"]=Join-Path $qa "ag-state"
-  $envs["VIBE_MONITOR_SETUP_HOME"]=Join-Path $qa "ag-home"
-  $rc=[pscustomobject]@{command=$node;args=@($entry,"mcp","--agent","antigravity");env=$envs}
-  Copy-Item $p "$p.bak.qa-$(Get-Date -Format yyyyMMdd-HHmmss)"
-  if($old){$config.mcpServers.'vibe-monitor-rc'=$rc}
-  else{$config.mcpServers|Add-Member -NotePropertyName 'vibe-monitor-rc' -NotePropertyValue $rc}
-  [IO.File]::WriteAllText($p,($config|ConvertTo-Json -Depth 64),(New-Object Text.UTF8Encoding($false)))
-  Write-Host "RC entry updated; Beta.41/default MCP entries unchanged. Reload Antigravity MCP service."
-}
-Write-Host "WINDOWS_RC_READY: client 1.0.1-rc.0, base $baseCommit"
-Write-Host "QA report: $(Join-Path $qa 'reports\mcp-results.json')"
