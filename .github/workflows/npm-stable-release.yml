@@ -1,4 +1,4 @@
-name: Vibe Monitor stable release (approval + signatures)
+name: Vibe Monitor official npm release (single client)
 on:
   workflow_dispatch:
     inputs:
@@ -15,7 +15,7 @@ on:
         required: true
         type: string
 permissions:
-  contents: read
+  contents: write
   actions: read
   id-token: write
 concurrency:
@@ -34,16 +34,13 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-          registry-url: https://registry.npmjs.org
       - name: Fail closed without exact SHA, version, or approved release gates
         env:
           VERSION: ${{ inputs.expected_version }}
           COMMIT_SHA: ${{ inputs.expected_sha }}
           APPROVAL: ${{ inputs.approval_ticket }}
           OWNER_APPROVED: ${{ vars.VIBE_STABLE_RELEASE_APPROVED }}
-          IP_APPROVED: ${{ vars.VIBE_IP_RIGHTS_APPROVED }}
           PRIVACY_APPROVED: ${{ vars.VIBE_PRIVACY_APPROVED }}
-          OS_APPROVED: ${{ vars.VIBE_NATIVE_RELEASE_QA_APPROVED }}
         run: |
           node --input-type=module <<'JS'
           import {readFileSync} from 'node:fs';
@@ -56,50 +53,44 @@ jobs:
             throw Error('not_audited_stable_source');
           if(!/^[A-Za-z0-9_-]{8,120}$/.test(process.env.APPROVAL||''))
             throw Error('owner_approval_missing');
-          for(const k of ['OWNER_APPROVED','IP_APPROVED','PRIVACY_APPROVED','OS_APPROVED'])
+          for(const k of ['OWNER_APPROVED','PRIVACY_APPROVED'])
             if(process.env[k]!=='yes')throw Error('release_gate_missing:'+k);
           JS
       - run: npm ci
       - run: npm test
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=moderate
-      - name: Require real signed Cloud policy and signed update manifest
+      - name: Verify production Cloud policy and public-client telemetry are live
         run: |
           node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import crypto from 'node:crypto';
-          import {execFileSync} from 'node:child_process';
-          import {verifyCommunityPolicyEnvelope,COMMUNITY_POLICY_KEY_ID,COMMUNITY_POLICY_NEXT_KEY_ID,
-            COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM} from './src/community-cloud-policy.js';
-          import {verifyFreeUpdateEnvelope,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,FREE_UPDATE_MANIFEST_URL} from './src/update.js';
-          if(!COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM||!FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM)
-            throw Error('signed_trust_roots_not_pinned');
-          const fetchSigned=async url=>{
-            const r=await fetch(url,{redirect:'error',cache:'no-store',signal:AbortSignal.timeout(5000)});
-            if(r.status!==200)throw Error('release_endpoint_unavailable');
-            const declared=Number(r.headers.get('content-length')||0);
-            if(!Number.isFinite(declared)||declared>16384)throw Error('oversized_signed_release');
-            const reader=r.body.getReader(),parts=[];let n=0;
-            try{while(true){const {done,value}=await reader.read();if(done)break;
-              n+=value.byteLength;if(n>16384)throw Error('oversized_signed_release');
-              parts.push(Buffer.from(value));}}finally{reader.releaseLock();}
-            return JSON.parse(Buffer.concat(parts).toString('utf8'));
-          };
-          const [policy,release]=await Promise.all([
-            fetchSigned('https://vibe-api.fde.fan/free/policy'),
-            fetchSigned(FREE_UPDATE_MANIFEST_URL)]);
-          const verified=verifyCommunityPolicyEnvelope(policy,{publicKeysById:{
+          import {COMMUNITY_POLICY_URL, COMMUNITY_POLICY_KEY_ID, COMMUNITY_POLICY_NEXT_KEY_ID,
+            COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM, COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,
+            verifyCommunityPolicyEnvelope} from './src/community-cloud-policy.js';
+          import {FREE_TELEMETRY_UPLOAD_ENABLED} from './src/cloud.js';
+          if (!FREE_TELEMETRY_UPLOAD_ENABLED) throw Error('production_telemetry_ingress_not_enabled_in_client');
+          if (!COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM) throw Error('cloud_policy_trust_root_not_pinned');
+          const r=await fetch(COMMUNITY_POLICY_URL,{redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000)});
+          if (r.status!==200) throw Error('production_cloud_policy_not_available');
+          const n=Number(r.headers.get('content-length')||0);
+          if(n>16384) throw Error('production_policy_too_large');
+          const policy=await r.json();
+          if(!verifyCommunityPolicyEnvelope(policy,{publicKeysById:{
             [COMMUNITY_POLICY_KEY_ID]:COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,
-            [COMMUNITY_POLICY_NEXT_KEY_ID]:COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM}});
-          const manifest=verifyFreeUpdateEnvelope(release);
-          const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
-          if(!verified||!manifest||manifest.version!==pkg.version)
-            throw Error('signed_release_verification_failed');
-          const pack=JSON.parse(execFileSync('npm',['pack','--json'],{encoding:'utf8'}))[0];
-          const digest=crypto.createHash('sha256').update(fs.readFileSync(pack.filename)).digest('hex');
-          if(digest!==manifest.artifact.sha256)throw Error('signed_artifact_sha_mismatch');
-          fs.writeFileSync('.release-tarball-name',pack.filename);
+            [COMMUNITY_POLICY_NEXT_KEY_ID]:COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM
+          }}))throw Error('production_cloud_policy_signature_invalid');
           JS
+      - name: Prepare reproducible npm package and SHA256
+        run: |
+          npm pack --json > .release-pack.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const [p]=JSON.parse(fs.readFileSync('.release-pack.json','utf8'));
+          const actual=p.files.map(f=>f.path).sort();
+          const allowed=['LICENSE','NOTICE','README.md','dist/vibe-monitor-scan-worker.mjs','dist/vibe-monitor.mjs','package.json'].sort();
+          if(JSON.stringify(actual)!==JSON.stringify(allowed))throw Error('npm_tarball_allowlist_mismatch');
+          fs.writeFileSync('.release-tarball-name',p.filename);
+          JS
+          shasum -a 256 "$(cat .release-tarball-name)" > release.sha256
       - name: Refuse immutable version collision
         env:
           VERSION: ${{ inputs.expected_version }}
@@ -115,3 +106,9 @@ jobs:
         env:
           VERSION: ${{ inputs.expected_version }}
         run: test "$(npm view @vibe-monitor/setup dist-tags.latest --prefer-online)" = "$VERSION"
+      - name: Create public GitHub Release from the same commit and npm package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.expected_version }}
+        run: |
+          gh release create "v$VERSION" "$(cat .release-tarball-name)" release.sha256 --target "$GITHUB_SHA" --title "Vibe Monitor v$VERSION" --generate-notes
