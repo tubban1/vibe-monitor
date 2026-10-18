@@ -29,15 +29,24 @@ jobs:
           if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Requires Windows PowerShell 5.1' }
           $tokens = $null
           $parseErrors = $null
-          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts/qa-windows-antigravity-rc.ps1'
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            $scriptPath, [ref]$tokens, [ref]$parseErrors
-          ) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object { Write-Output $_.ToString() }
-            throw 'Windows QA installer PowerShell syntax invalid'
+          foreach ($file in @('scripts/qa-windows-antigravity-rc.ps1','scripts/cleanup-windows-legacy-qa.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            $scriptPath = Join-Path $env:GITHUB_WORKSPACE $file
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $scriptPath, [ref]$tokens, [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | ForEach-Object { Write-Output $_.ToString() }
+              throw ('Windows PowerShell syntax invalid: ' + $file)
+            }
           }
           Write-Output 'WINDOWS_POWERSHELL_51_PARSE_PASS'
+      - name: Native Windows long-path recursive cleanup regression
+        shell: powershell
+        run: |
+          & ./scripts/cleanup-windows-legacy-qa.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'Windows long-path cleanup failed' }
 
   public-surface:
     name: Public repository boundary (Ubuntu)
