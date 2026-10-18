@@ -61,6 +61,14 @@ try {
   $configBackup = "$configPath.before-one-version-$(Get-Date -Format yyyyMMdd-HHmmss).bak"
   Copy-Item -LiteralPath $configPath -Destination $configBackup
 
+  # Initialize Free telemetry BEFORE touching the active installation.
+  # Avoid nested double quotes in PowerShell's node -e argument handling.
+  $initFile = Join-Path $source "src\telemetry.js"
+  $initUri = ([Uri]::new($initFile)).AbsoluteUri
+  $env:VIBE_MONITOR_HOME = $state
+  & $node --input-type=module -e 'import(process.argv[1]).then(m=>m.initializeFreeTelemetry())' $initUri
+  CheckExit "Default telemetry initialization"
+
   # Move verified runtime into the ONLY live installation path.
   $old = $null
   if(Test-Path $install){
@@ -74,12 +82,6 @@ try {
   }
   $stableVersion = (& $node $stableEntry --version | Out-String).Trim()
   if($stableVersion -notmatch [regex]::Escape($version)){throw "Single active runtime verification failed"}
-  # Initialize first-install telemetry; preserve existing local website-controlled settings.
-  $initFile = Join-Path $source "src\telemetry.js"
-  $env:VIBE_MONITOR_HOME = $state
-  & $node --input-type=module -e 'import {pathToFileURL} from "node:url"; const m=await import(pathToFileURL(process.argv[1]).href); m.initializeFreeTelemetry();' $initFile
-  CheckExit "Default telemetry initialization"
-
   foreach($name in @("vibe-monitor-rc","vibe-monitor-qa")){
     if($cfg.mcpServers.PSObject.Properties.Name -contains $name){
       $cfg.mcpServers.PSObject.Properties.Remove($name)
@@ -120,7 +122,34 @@ try {
       $removed += $name
     }
   }
-  if($old -and (Test-Path $old)){Remove-Item -LiteralPath $old -Recurse -Force}
+  # Also clean previous-version backup left by an earlier interrupted run.
+  $leftover = @(Get-ChildItem -LiteralPath $Workspace -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^vibe-monitor-previous-[0-9a-f]{32}
+  $launcherDir = Join-Path $state "bin"
+  New-Item -ItemType Directory -Force $launcherDir | Out-Null
+  $launcher = Join-Path $launcherDir "vibe-monitor.cmd"
+  $launcherText = '@echo off' + "`r`n" + '"' + $node + '" "' + $stableEntry + '" %*' + "`r`n"
+  [IO.File]::WriteAllText($launcher,$launcherText,(New-Object Text.ASCIIEncoding))
+  # Keep the .vibe-monitor state directory, including identity and telemetry.
+  # Remove only prior managed code installs, never the user's data directory.
+  foreach($sub in @("runtime\versions","runtime\packages")){
+    $target = Join-Path $state $sub
+    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force}
+  }
+  Write-Output "SINGLE_VERSION_READY: $version"
+  Write-Output "INSTALL=$install"
+  Write-Output "ANTIGRAVITY_MCP=vibe-monitor"
+  Write-Output ("OLD_QA_DIRECTORIES_REMOVED="+$removed.Count)
+  Write-Output "Restart Antigravity to discard previously loaded MCP processes."
+  $finished = $true
+} finally {
+  if(Test-Path $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
+  if(-not $finished){Write-Warning "Single-version setup did not complete. Inspect errors before deleting anything else."}
+}
+ })
+  foreach($copy in $leftover) {
+    Remove-Item -LiteralPath $copy.FullName -Recurse -Force
+  }
   # Keep existing IDE launchers working, but route them to the same sole client.
   $launcherDir = Join-Path $state "bin"
   New-Item -ItemType Directory -Force $launcherDir | Out-Null
