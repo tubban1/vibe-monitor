@@ -14,6 +14,7 @@ import { readSecret, writeSecret } from "./secure-store.js";
 import { CLIENT_VERSION } from "./constants.js";
 import { getOrCreateDeviceIdentity } from "./device.js";
 import { isOpenClientDistribution } from "./distribution.js";
+import {assessFreeTelemetryProjection} from "./telemetry-quality.js";
 import {DEFAULT_POLICY, clampNumber, sanitizeRemotePolicy} from "./policy-sanitizer.js";
 export {sanitizeRemotePolicy} from "./policy-sanitizer.js";
 
@@ -581,8 +582,13 @@ async function syncFreeTelemetryOnce({fetchImpl=globalThis.fetch}={}) {
  if(!isOpenClientDistribution())return {uploaded:0,reason:"private_beta_mode"};
  if(!telemetryStatus().enabled)return {uploaded:0,reason:"telemetry_off"};
  if(!FREE_TELEMETRY_UPLOAD_ENABLED)return {uploaded:0,reason:"free_intake_not_released"};
- const batch=freeTelemetryWireBatch();
- if(!batch.length)return {uploaded:0,reason:"empty"};
+ const source=readTelemetryBatch({limit:12});
+ if(!source.length)return {uploaded:0,reason:"empty"};
+ const batch=freeTelemetryWireBatch(source);
+ const quality=assessFreeTelemetryProjection(source,batch);
+ if(!quality.ok)return {uploaded:0,reason:"quality_blocked",
+   quality:{counts:quality.counts,codes:[...new Set(quality.blocked.map(x=>x.code))].slice(0,8)}};
+ if(!batch.length)return {uploaded:0,reason:"quality_blocked"};
  const payload=JSON.stringify({events:batch});
  if(Buffer.byteLength(payload)>24576)return {uploaded:0,reason:"batch_too_large"};
  try {
@@ -630,6 +636,7 @@ export async function syncFreeTelemetry({fetchImpl=globalThis.fetch,force=false,
    atomicJsonWrite(freeSyncPath(),{attempt:attempts,nextRetryAt,
     lastResult:failed.has(result.reason)?"retry_scheduled":
       result.reason||(remaining>0?"partial":"ok"),
+    ...(result.reason==="quality_blocked"?{quality:result.quality||{codes:["quality_blocked"]}}:{}),
     remainingQueued:remaining,
     lastAttemptAt:new Date(now()).toISOString()});
   }catch{/* transport results remain honest even when diagnostics cannot be persisted */}
