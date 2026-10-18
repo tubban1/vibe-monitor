@@ -3,6 +3,47 @@
 Status: Implemented — local queue + Neon private-beta transport
 Date: 2026-10-07
 
+## At a glance
+
+Vibe Monitor analyzes project source locally. Default private-Beta telemetry does **not** upload source code, diffs, prompts, secrets, filenames or raw project paths. Cloud policy delivery is distinct from telemetry collection: Cloud sends architecture policies to the client, while the current Beta also sends bounded, pseudonymized architecture, usage, performance and outcome signals back to improve the product. Participation in this **current private Beta** requires disclosed telemetry; this is not a statement of future Free-plan terms. Inspect the exact queued payload with `vibe-monitor telemetry inspect` before participating.
+
+## Upcoming Free/Pro/Team contract — not live in Beta.41
+
+The material below this section documents the currently published private
+Beta. For the unified client, Free analysis requires disclosed product-
+improvement telemetry. Turning telemetry off suspends Free analysis.
+The Free Cloud endpoint remains disabled until separate production QA.
+
+All accepted Free, Beta, Pro and Team Cloud history (pseudonymous usage,
+architecture evolution, recommendations, feedback and outcome verification)
+is intended for long-term preservation: no age-based Cloud TTL, scheduled
+deletion or automatic purge. Local logs, transient queues and caches may
+be cleaned independently for disk/performance purposes. Installation-HMAC
+identifiers remain pseudonymous personal data when linkable, not automatically
+anonymous. Legally required targeted erasure goes through an independently
+authorized, audited process.
+
+Current Neon production region: AWS Singapore (`aws-ap-southeast-1`).
+Applicable data-transfer safeguards, collection purposes, access controls,
+capacity/backup security and lawful-basis notices require review before
+enabling production Free ingestion. No production Free uploads are claimed.
+
+## One Free product, independent strategy and telemetry channels
+
+- `GET /free/policy`: Cloud-to-client, read-only declarative
+  architecture policy, protected by an Ed25519 signature and pinned client
+  public key. `community` is an internal signing/profile identifier, **not** a fourth plan.
+- `POST /free/telemetry`: Free-client-to-Cloud pseudonymous usage,
+  architectural evidence and outcome signals, independently rate-limited
+  and admitted. It is not private Beta's authenticated `/events` API.
+
+These interfaces are independently enabled: downloading a strategy is not
+telemetry consent or an implicit upload. **Free, Pro and Team** are the
+actual subscription tiers, with one client. Free telemetry is a disclosed
+condition for Free analysis; turning it off suspends Free analysis, while
+local inspection and uninstall remain available. Signed-policy delivery
+and Free Cloud ingest both remain subject to their own live release gates.
+
 ## Purpose
 
 Private beta needs enough evidence to improve Vibe Monitor's decisions without turning Vibe into a source-code or conversation collection system.

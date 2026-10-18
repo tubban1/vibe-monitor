@@ -22,9 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -46,6 +47,15 @@ jobs:
             echo "has_client=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Prepare Node 22 for release-history audit
+        if: github.event_name == 'pull_request' && steps.detect-client.outputs.has_client == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Reject historical secrets, forbidden paths and unsafe Git revisions
+        if: github.event_name == 'pull_request' && steps.detect-client.outputs.has_client == 'true'
+        run: node scripts/verify-oss-source-history.mjs --baseline origin/main
+
   client-platforms:
     name: OSS client / ${{ matrix.os }} / Node 22
     needs: public-surface
@@ -56,19 +66,60 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      CI: 'true'
+      VIBE_CLOUD_URL: http://127.0.0.1:1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm test
-      - run: npm run build
-      - run: npm pack --dry-run
-      - run: node ./dist/vibe-monitor.mjs --help
+      - name: Install reproducible dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Audit runtime npm dependencies on official registry
+        if: matrix.os == 'ubuntu-latest'
+        run: npm audit --omit=dev --registry=https://registry.npmjs.org --audit-level=moderate
+      - name: Verify native Tree-sitter parser on this OS
+        shell: bash
+        run: |
+          node --input-type=module -e "import Parser from 'tree-sitter'; import JS from 'tree-sitter-javascript'; const p = new Parser(); p.setLanguage(JS); const n = p.parse('const x = 1;').rootNode; if (n.type !== 'program' || (typeof n.hasError === 'function' ? n.hasError() : n.hasError === true)) process.exit(1)"
+      - name: Native Windows PowerShell 5.1 / DPAPI round-trip
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'powershell_5_1_required' }
+          Add-Type -AssemblyName System.Security
+          $plain = [System.Text.Encoding]::UTF8.GetBytes('vibe-monitor-native-dpapi-check')
+          $entropy = [System.Text.Encoding]::UTF8.GetBytes('vibe-monitor-qa-entropy')
+          $encrypted = [System.Security.Cryptography.ProtectedData]::Protect(
+            $plain, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+          )
+          $restored = [System.Security.Cryptography.ProtectedData]::Unprotect(
+            $encrypted, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+          )
+          if ([System.Text.Encoding]::UTF8.GetString($restored) -ne 'vibe-monitor-native-dpapi-check') {
+            throw 'dpapi_round_trip_failed'
+          }
+          Write-Output 'NATIVE_WINDOWS_DPAPI_PASS'
+      - name: Offline source scan, install/uninstall, and privacy contracts
+        run: npm test
+      - name: Build CLI and scanner worker
+        run: npm run build
+      - name: Verify one client identity and approved OSS license
+        shell: bash
+        run: |
+          node --input-type=module -e "import p from './package.json' with { type: 'json' }; if (p.name !== '@vibe-monitor/setup' || p.license !== 'Apache-2.0' || typeof p.private !== 'boolean') process.exit(1)"
+      - name: Verify exact tarball allowlist, do not publish
+        shell: bash
+        run: |
+          npm pack --dry-run --json | node --input-type=module -e "let s=''; for await (const chunk of process.stdin) s+=chunk; const r=JSON.parse(s); const actual=r[0].files.map(f=>f.path).sort(); const allowed=['LICENSE','NOTICE','README.md','dist/vibe-monitor-scan-worker.mjs','dist/vibe-monitor.mjs','package.json'].sort(); if(JSON.stringify(actual)!==JSON.stringify(allowed)) { console.error(actual); process.exit(1); }"
+      - name: CLI help smoke
+        run: node ./dist/vibe-monitor.mjs --help
 
-# This matrix remains skipped until reviewed and licensed CLI/MCP src/ exists
-# in the PUBLIC repo; app/Cloud files and private source are never copied here.
+# Public standard GitHub runners only; no secrets, AWS access or npm publish.
+# Matrix remains skipped on docs-only main; an authorized PUBLIC source PR
+# makes the candidate visible and triggers this matrix before any main merge.

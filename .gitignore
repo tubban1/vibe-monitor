@@ -1,0 +1,6 @@
+# Unpublished local client review: generated artifacts must never enter source commits.
+node_modules/
+dist/
+*.tgz
+*.log
+.DS_Store

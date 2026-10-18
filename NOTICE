@@ -1,0 +1,22 @@
+Vibe Monitor — single-client source candidate under Apache-2.0.
+Copyright (c) Vibe Monitor contributors.
+
+Third-party direct runtime packages resolved by the audited package-lock:
+- @modelcontextprotocol/sdk 1.32.1 — MIT
+- json5 2.2.3 — MIT
+- tree-sitter 0.21.1 — MIT
+- tree-sitter-javascript 0.21.4 — MIT
+- tree-sitter-python 0.21.0 — MIT
+- tree-sitter-typescript 0.23.2 — MIT
+- zod 3.25.76 — MIT
+
+Build-only direct dependency:
+- esbuild 0.28.2 — MIT
+
+These packages are installed separately by npm; the six-file Vibe Monitor
+package candidate does not itself bundle dependency package directories.
+Upstream LICENSE files accompany each locally resolved dependency.
+Transitive npm dependencies retain their individual licenses and notices.
+This list is a verified technical inventory, not an IP ownership or legal sign-off.
+Full attribution, contributor rights and native-binary license approval are
+required before public distribution.

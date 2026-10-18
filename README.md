@@ -16,7 +16,8 @@ A **read-only project architecture advisor for the coding agent you already use*
 
 Vibe Monitor analyzes your project locally. Your source code, prompts, and project files are never uploaded to our servers.
 
-Cloud connectivity delivers architecture policies and supports privacy-conscious product improvement.
+Cloud connectivity delivers architecture policies and supports disclosed product-improvement telemetry.
+
 
 [Privacy & Data Practices](https://github.com/tubban1/vibe-monitor/blob/main/docs/governance/TELEMETRY_PRIVACY_V1.md)
 
@@ -40,7 +41,36 @@ npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@beta install
 
 The default official Cloud API is `https://vibe-api.fde.fan`. [Installation, verification, error handling and uninstall guide →](docs/INSTALL.md)
 
-**Future direction: one installer, Free / Pro / Team.** Free should work without creating an account, with clearly disclosed, privacy-minimized **product-improvement telemetry enabled by default**. Pro/Team use the *same client* and unlock Cloud services through authentication and server-enforced entitlements. This Free onboarding/telemetry contract is **not shipped in Beta.41**.
+**Future direction: one installer, Free / Pro / Team.** Free should work without creating an account, with clearly disclosed **required product-improvement telemetry**: stopping telemetry disables Free analysis. Pro/Team use the *same client* and unlock Cloud services through authentication and server-enforced entitlements. This Free onboarding/telemetry contract is **not shipped in Beta.41**.
+
+**One Free plan, two separate Cloud interfaces:** `GET /free/policy`
+delivers signed architecture-analysis strategy **from Cloud to client**;
+`POST /free/telemetry` sends bounded pseudonymous product/architecture
+signals **from Free client to Cloud**. **Community is an internal signing/profile identifier,
+not a subscription tier.** The unpublished historical policy URL has no compatibility alias. Free, Pro and
+Team share the same installer. Fetching a strategy never authorizes a
+telemetry upload; both channels have independent security checks and
+deployment gates. Neither new production endpoint is live yet.
+
+### Planned Free service and telemetry exchange (release gate pending)
+
+The Free service requires product-improvement telemetry covering usage, performance, technical/project categories, architecture change, recommendations, and explicit user or Agent outcome reports. A full scan may contribute coarse inferred product type, technology, deployment, architecture and test classifications and pseudonymous project/finding/outcome links—not raw source, diffs, repository names/URLs, file paths, prompts, credentials or free-form notes.
+
+On Free, `vibe-monitor telemetry off` **stops collection and architecture analysis**; `vibe-monitor telemetry on` restores both. `vibe-monitor telemetry inspect` shows queued events. Free installation and setup reject `--no-telemetry`. Local diagnostics and security inspection and uninstall remain accessible. Pro/Team entitlements require verified Cloud grants; this is not a self-declared premium bypass.
+
+**Not enabled in production:** This source audit still hard-disables Free Cloud uploads. Before official release, the disclosed data categories, lawful basis, regional handling, long-term Cloud preservation, separately audited legally required erasure and any distinct purposes such as model training or sharing need independent legal review plus live technical acceptance. Requiring telemetry to use a service does not by itself establish legal consent.
+
+
+**Planned long-term Cloud policy for Free/Pro/Team:** accepted telemetry,
+architecture evolution, recommendations, feedback and outcome verification
+are preserved with no automatic Cloud TTL, scheduled deletion or age-based
+purge. Local logs, caches and unsent queues may be cleaned separately for
+performance and disk usage. Identifiers remain pseudonymous (not necessarily
+anonymous). Lawful scoped erasure is separately authorized and audited.
+The current Neon region is AWS Singapore (`aws-ap-southeast-1`), subject to
+appropriate international data-transfer notice and safeguards. This is
+a release design, not a claim that Free production collection is live or that
+legal/data-transfer review has been completed.
 
 ## What happens to your code and computer?
 
