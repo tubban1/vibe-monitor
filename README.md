@@ -51,7 +51,7 @@ Telemetry collects bounded, pseudonymous product usage, architecture signals and
 
 Product events are uploaded separately through `POST /free/telemetry` only when the production gateway and Neon intake are enabled. This intake has independent rate-limiting, bounded payload validation and an origin shared secret; a successful policy fetch does not imply telemetry acceptance. Unsigned or unavailable Cloud policy falls back to the minimal local rules.
 
-The Cloud strategy endpoint is active. The telemetry endpoint is subject to production activation and verification, and must not be described as live until a real public upload succeeds. Cloud telemetry records have no automatic TTL or scheduled purge; legally required scoped erasure is a separate auditable process. The database is in AWS Singapore.
+The signed Cloud strategy and telemetry intake were both verified live on 2026-10-18, including one synthetic write to the unified `telemetry_events` table (removed after verification). The npm stable version is still awaiting publication. Cloud telemetry records have no automatic TTL or scheduled purge; scoped legal erasure requires a separate auditable process. The database is in AWS Singapore. Linkable pseudonymous identifiers may qualify as personal data; privacy approval for public release is a separate step.
 
 [Privacy & Data Practices](docs/governance/TELEMETRY_PRIVACY_V1.md)
 
@@ -60,7 +60,7 @@ The Cloud strategy endpoint is active. The telemetry endpoint is subject to prod
 | Concern | Verified behavior / limit |
 | --- | --- |
 | Read-only code analysis | Project source is analyzed without rewriting it. **Installing does modify managed Agent MCP/rule configuration.** |
-| No source-code upload in default Beta telemetry | Source, diffs, prompts, secrets, paths and filenames aren't collected by the default telemetry. Coarse architecture, usage and outcome signals **are** sent under the disclosed Beta contract. |
+| No source-code upload in product telemetry | Source, diffs, prompts, secrets, paths and filenames are not uploaded by default telemetry. Coarse architecture, usage and outcome signals **are** sent under the disclosed contract. |
 | No extra always-on daemon | Designed around Agent MCP sessions and checkpoints; not a separately installed permanent monitoring daemon. Invocation depends on the host Agent. |
 | Backup and undo | Supported configuration files use scoped backup/managed-block mechanisms. `uninstall` removes managed Agent integration; it does **not** guarantee deletion of all local history or backups. |
 
