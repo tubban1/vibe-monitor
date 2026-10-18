@@ -1,48 +1,28 @@
 # Telemetry & Privacy Contract v4
 
-Status: Implemented — local queue + Neon private-beta transport
-Date: 2026-10-07
+Status: Production policy and telemetry intake verified; npm stable 1.0.0 not yet published
+Date: 2026-10-18
 
 ## At a glance
 
-Vibe Monitor analyzes project source locally. Default private-Beta telemetry does **not** upload source code, diffs, prompts, secrets, filenames or raw project paths. Cloud policy delivery is distinct from telemetry collection: Cloud sends architecture policies to the client, while the current Beta also sends bounded, pseudonymized architecture, usage, performance and outcome signals back to improve the product. Participation in this **current private Beta** requires disclosed telemetry; this is not a statement of future Free-plan terms. Inspect the exact queued payload with `vibe-monitor telemetry inspect` before participating.
+Vibe Monitor analyzes source code locally. The unified client collects bounded product-operation, architectural, usage, performance and outcome signals. Default telemetry does **not** upload source code, diffs, prompts, secrets, filenames, repository names or raw project paths. The data includes stable installation IDs and pseudonymous project/finding identifiers; linkable pseudonyms may still count as personal data. `vibe-monitor telemetry status` and `vibe-monitor telemetry inspect` are read-only ways to check what is queued.
 
-## Upcoming Free/Pro/Team contract — not live in Beta.41
+For the upcoming stable 1.0.0 client, telemetry is enabled by default at installation and is required for architecture analysis. CLI mutation commands are intentionally disabled. **An authenticated website control for an individual installation is not yet available.** Do not claim that per-user website opt-out is available; stopping use or uninstalling the client stops new collection, but does not erase previously received records. The official stable package is not yet published.
 
-The material below this section documents the currently published private
-Beta. For the unified client, Free analysis requires disclosed product-
-improvement telemetry. Turning telemetry off suspends Free analysis.
-The Free Cloud endpoint remains disabled until separate production QA.
+## Single client, separate policy and telemetry interfaces
 
-All accepted Free, Beta, Pro and Team Cloud history (pseudonymous usage,
-architecture evolution, recommendations, feedback and outcome verification)
-is intended for long-term preservation: no age-based Cloud TTL, scheduled
-deletion or automatic purge. Local logs, transient queues and caches may
-be cleaned independently for disk/performance purposes. Installation-HMAC
-identifiers remain pseudonymous personal data when linkable, not automatically
-anonymous. Legally required targeted erasure goes through an independently
-authorized, audited process.
+- `GET /free/policy`: live Cloud-to-client declarative architecture policy, signed with Ed25519 and verified against a pinned client public key. `community` and `free` are internal compatibility identifiers, **not** distinct client products.
+- `POST /free/telemetry`: live client-to-Cloud product telemetry, rate-limited by Cloudflare, validated again in Neon and persisted in the unified `public.telemetry_events` table. This is separate from the older private Beta `/events` transport.
 
-Current Neon production region: AWS Singapore (`aws-ap-southeast-1`).
-Applicable data-transfer safeguards, collection purposes, access controls,
-capacity/backup security and lawful-basis notices require review before
-enabling production Free ingestion. No production Free uploads are claimed.
+Both production interfaces passed live checks on 2026-10-18, including one synthetic database write subsequently removed. Live endpoint availability does not itself mean the npm 1.0.0 package has been published.
 
-## One Free product, independent strategy and telemetry channels
+## Storage and privacy limits
 
-- `GET /free/policy`: Cloud-to-client, read-only declarative
-  architecture policy, protected by an Ed25519 signature and pinned client
-  public key. `community` is an internal signing/profile identifier, **not** a fourth plan.
-- `POST /free/telemetry`: Free-client-to-Cloud pseudonymous usage,
-  architectural evidence and outcome signals, independently rate-limited
-  and admitted. It is not private Beta's authenticated `/events` API.
+Accepted product history (pseudonymous usage, architecture evolution, recommendations, feedback and outcome verification) has **no automatic age-based Cloud TTL, scheduled deletion or purge**. Local queues and caches have separate cleanup policies. An installation identifier and linkable pseudonyms are not guaranteed to be anonymous. Legally required targeted erasure needs an authorized, auditable procedure.
 
-These interfaces are independently enabled: downloading a strategy is not
-telemetry consent or an implicit upload. **Free, Pro and Team** are the
-actual subscription tiers, with one client. Free telemetry is a disclosed
-condition for Free analysis; turning it off suspends Free analysis, while
-local inspection and uninstall remain available. Signed-policy delivery
-and Free Cloud ingest both remain subject to their own live release gates.
+The Neon production database is hosted in **AWS Singapore (`aws-ap-southeast-1`)**. International-transfer compliance, lawful basis, notices, security/access controls, storage retention, and the not-yet-implemented individual website controls require product-owner/privacy review before a public stable release is authorized. This document is a factual technical disclosure, **not** a legal compliance certification.
+
+The client is currently one open-source product; separate Pro or Team client variants are not released. A future commercial plan is not an existing user entitlement.
 
 ## Purpose
 
