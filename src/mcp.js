@@ -17,7 +17,7 @@ import {
   submitArchitectureReviewResponse,
   syncCloudDevice,
   syncTelemetry,
-  syncFreeTelemetry
+  createFreeTelemetryDrain
 } from "./cloud.js";
 import {
   ARP_PROTOCOL_VERSION,
@@ -388,11 +388,12 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     };
   }
 
+  const freeTelemetryDrain = isOpenClientDistribution() ? createFreeTelemetryDrain() : null;
   let cloudSyncPromise = null;
   let cloudSyncRequested = false;
 
   function syncCloudBestEffort() {
-    if(isOpenClientDistribution())return syncFreeTelemetry();
+    if(freeTelemetryDrain)return freeTelemetryDrain.request();
     cloudSyncRequested = true;
     if (cloudSyncPromise) return cloudSyncPromise;
 
@@ -1043,5 +1044,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Resume persisted offline events without requiring a new tool call.
+  freeTelemetryDrain?.request();
   scheduleAutomaticUpdate();
 }

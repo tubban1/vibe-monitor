@@ -622,17 +622,103 @@ export async function syncFreeTelemetry({fetchImpl=globalThis.fetch,force=false,
  if(!force&&Number.isFinite(next)&&next>now()&&next-now()<=86400_000)return {uploaded:0,reason:"retry_backoff",nextRetryAt:new Date(next).toISOString()};
  freeSyncInFlight=(async()=>{
   const result=await syncFreeTelemetryOnce({fetchImpl});
+  const remaining=telemetryStatus().queuedEvents;
   const failed=new Set(["cloud_unavailable","network_or_invalid_response","invalid_ack","batch_too_large"]);
   const attempts=failed.has(result.reason)?Math.min(9,(Number(state?.attempt)||0)+1):0;
   const nextRetryAt=attempts?now()+freeSyncBackoffMs(attempts,crypto.randomInt(0,3001)):0;
   try{
    atomicJsonWrite(freeSyncPath(),{attempt:attempts,nextRetryAt,
-    lastResult:failed.has(result.reason)?"retry_scheduled":result.reason||"ok",
+    lastResult:failed.has(result.reason)?"retry_scheduled":
+      result.reason||(remaining>0?"partial":"ok"),
+    remainingQueued:remaining,
     lastAttemptAt:new Date(now()).toISOString()});
   }catch{/* transport results remain honest even when diagnostics cannot be persisted */}
-  return {...result,...(attempts?{nextRetryAt:new Date(nextRetryAt).toISOString()}:{})};
+  return {...result,remaining,...(attempts?{nextRetryAt:new Date(nextRetryAt).toISOString()}:{})};
  })();
  try{return await freeSyncInFlight;}finally{freeSyncInFlight=null;}
+}
+
+// A cooperative uploader for long-lived MCP servers. The existing transport
+// still enforces at most 12 sanitized events and 24KB per HTTP request.
+export function createFreeTelemetryDrain({
+  sync = syncFreeTelemetry,
+  pending = () => telemetryStatus().queuedEvents,
+  schedule = (callback, delay) => {
+    const timer = setTimeout(callback, delay);
+    timer.unref?.();
+    return timer;
+  },
+  cancel = clearTimeout,
+  batchesPerTurn = 4,
+  turnDelayMs = 25
+} = {}) {
+  let timer = null;
+  let running = false;
+  let requestedWhileRunning = false;
+  let stopped = false;
+
+  function plan(delayMs) {
+    if (stopped || timer !== null) return;
+    timer = schedule(() => {
+      timer = null;
+      void drain();
+    }, Math.max(0, Math.min(300_000, Math.ceil(delayMs))));
+  }
+
+  async function drain() {
+    if (stopped || running) return;
+    running = true;
+    let nextDelay = null;
+    try {
+      for (let i = 0; i < Math.max(1, Math.min(8, batchesPerTurn)); i++) {
+        if (stopped) break;
+        const before = pending();
+        if (before <= 0) break;
+        const result = await sync();
+        if (stopped) break;
+        if (result?.reason === "retry_backoff" || result?.nextRetryAt) {
+          const retryAt = Date.parse(result.nextRetryAt || "");
+          nextDelay = Number.isFinite(retryAt)
+            ? Math.max(100, retryAt - Date.now()) : 30_000;
+          break;
+        }
+        if (result?.reason && result.reason !== "empty") {
+          // No hot loop on disabled transport, invalid batches, or offline Cloud.
+          nextDelay = 30_000;
+          break;
+        }
+        const after = pending();
+        if (after >= before) {
+          nextDelay = after ? 30_000 : null;
+          break;
+        }
+        if (after === 0) break;
+        nextDelay = turnDelayMs;
+      }
+    } catch {
+      nextDelay = 30_000;
+    } finally {
+      running = false;
+      if (stopped) return;
+      const left = pending();
+      if (left > 0) plan(nextDelay ?? turnDelayMs);
+      else if (requestedWhileRunning) plan(turnDelayMs);
+      requestedWhileRunning = false;
+    }
+  }
+
+  return {
+    request() {
+      if (stopped) return;
+      if (running) requestedWhileRunning = true;
+      else plan(0);
+    },
+    stop() {
+      stopped = true;
+      if (timer !== null) cancel(timer);
+      timer = null;
+    }
+  };
 }
 
 export async function syncTelemetry({ limit = 100, respectBackoff = false } = {}) {
