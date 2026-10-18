@@ -35,6 +35,7 @@ import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTe
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
+import { detectorRuleId, monitorFamilyForDetector } from "./rule-identity.js";
 import { recommendationGroups } from "./diagnostic-quality.js";
 import { highSeverityReviewQueue } from "./finding-intelligence.js";
 import { compareVersions, consumeUpdateNotice, observeAvailableUpdate, scheduleAutomaticUpdate, updateStatus } from "./update.js";
@@ -57,6 +58,7 @@ function recordCallTiming(result, callStartedAt) {
 function compactAttentionFinding(finding) {
   return {
     id: finding.id,
+    ruleId: finding.ruleId || detectorRuleId(finding.family),
     family: finding.family,
     stage: finding.stage,
     target: finding.target,
@@ -158,10 +160,15 @@ export function buildAgentResult(result, { sessionStart = false, attentionFilter
 export function applyMonitoringPolicy(result, policy = {}) {
   const enabled = policy.enabledMonitors || {};
   const isEnabled = family => enabled[family] !== false;
-  const findings = result.findings.filter(finding => isEnabled(finding.family));
+  const findings = result.findings
+    .filter(finding => isEnabled(monitorFamilyForDetector(finding.family)))
+    .map(finding => ({
+      ...finding,
+      ruleId: finding.ruleId || detectorRuleId(finding.family)
+    }));
   const activeIds = new Set(findings.map(finding => finding.id));
   const transitions = (result.transitions || []).filter(change =>
-    (change.family ? isEnabled(change.family) : activeIds.has(change.id))
+    (change.family ? isEnabled(monitorFamilyForDetector(change.family)) : activeIds.has(change.id))
   );
   const attention = findings.filter(finding => finding.requiresAttention);
   return {

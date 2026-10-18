@@ -7,7 +7,9 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {buildAgentResult,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
+import {buildAgentResult,applyMonitoringPolicy,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
+import {detectorRuleId,monitorFamilyForDetector} from "../src/rule-identity.js";
+import {POLICY_V2_FAMILIES} from "../src/decision-policy.js";
 import {updateStatus} from "../src/update.js";
 import {CLIENT_VERSION} from "../src/constants.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
@@ -479,4 +481,30 @@ test("Open client ignores orphaned private Beta runtime pointer without hiding l
   else process.env.VIBE_MONITOR_HOME=prev;
   fs.rmSync(home,{recursive:true,force:true});
  }
+});
+
+test("Stable local ruleId is distinct from Cloud policy and data-contract respects api-contract mask",()=>{
+ for(const family of POLICY_V2_FAMILIES) assert.match(detectorRuleId(family), /^vm[.][a-z0-9.-]+[.]v1$/);
+ assert.equal(detectorRuleId("data-contract"),"vm.api-contract.encoded-id-contract.v1");
+ assert.equal(monitorFamilyForDetector("data-contract"),"api-contract");
+ assert.equal(detectorRuleId("future-unregistered"),null);
+ const raw={
+   project:{root:"/synthetic-playground"},
+   status:{assessmentAvailable:true},
+   findings:[
+    {id:"VM-A",family:"code-structure",stage:"S3",score:52,requiresAttention:true,signals:[]},
+    {id:"VM-B",family:"data-contract",stage:"S2",score:40,requiresAttention:false,signals:[]}
+   ],transitions:[],monitoring:{mode:"full"}
+ };
+ const enabled=applyMonitoringPolicy(raw,{enabledMonitors:{"api-contract":true}});
+ assert.equal(enabled.findings.length,2);
+ assert.equal(enabled.findings[0].ruleId,detectorRuleId("code-structure"));
+ assert.equal(enabled.findings[1].ruleId,"vm.api-contract.encoded-id-contract.v1");
+ assert.equal(enabled.status.findingCount,2);
+ const payload=buildAgentResult(enabled,{sessionStart:true});
+ assert.equal(payload.attentionFindings[0].ruleId,detectorRuleId("code-structure"));
+ const disabled=applyMonitoringPolicy(raw,{enabledMonitors:{"api-contract":false}});
+ assert.equal(disabled.findings.length,1,"Cloud api-contract monitor must mask specialized encoded ID detector");
+ assert.equal(disabled.status.findingCount,1);
+ assert.equal(raw.findings[0].ruleId,undefined,"raw finding must not be mutated by presentation mapping");
 });
