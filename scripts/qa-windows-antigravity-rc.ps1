@@ -122,45 +122,25 @@ try {
       $removed += $name
     }
   }
-  # Also clean previous-version backup left by an earlier interrupted run.
+  # Remove backups from interrupted earlier runs AFTER the new runtime is verified.
   $leftover = @(Get-ChildItem -LiteralPath $Workspace -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -match '^vibe-monitor-previous-[0-9a-f]{32}
-  $launcherDir = Join-Path $state "bin"
-  New-Item -ItemType Directory -Force $launcherDir | Out-Null
-  $launcher = Join-Path $launcherDir "vibe-monitor.cmd"
-  $launcherText = '@echo off' + "`r`n" + '"' + $node + '" "' + $stableEntry + '" %*' + "`r`n"
-  [IO.File]::WriteAllText($launcher,$launcherText,(New-Object Text.ASCIIEncoding))
-  # Keep the .vibe-monitor state directory, including identity and telemetry.
-  # Remove only prior managed code installs, never the user's data directory.
-  foreach($sub in @("runtime\versions","runtime\packages")){
-    $target = Join-Path $state $sub
-    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force}
-  }
-  Write-Output "SINGLE_VERSION_READY: $version"
-  Write-Output "INSTALL=$install"
-  Write-Output "ANTIGRAVITY_MCP=vibe-monitor"
-  Write-Output ("OLD_QA_DIRECTORIES_REMOVED="+$removed.Count)
-  Write-Output "Restart Antigravity to discard previously loaded MCP processes."
-  $finished = $true
-} finally {
-  if(Test-Path $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
-  if(-not $finished){Write-Warning "Single-version setup did not complete. Inspect errors before deleting anything else."}
-}
- })
+    Where-Object { $_.Name -match '^vibe-monitor-previous-[0-9a-f]{32}$' })
   foreach($copy in $leftover) {
     Remove-Item -LiteralPath $copy.FullName -Recurse -Force
   }
-  # Keep existing IDE launchers working, but route them to the same sole client.
+
+  # All agent launchers should point to the one installed version.
   $launcherDir = Join-Path $state "bin"
-  New-Item -ItemType Directory -Force $launcherDir | Out-Null
+  New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
   $launcher = Join-Path $launcherDir "vibe-monitor.cmd"
-  $launcherText = '@echo off' + "`r`n" + '"' + $node + '" "' + $stableEntry + '" %*' + "`r`n"
+  $launcherText = '@echo off' + [Environment]::NewLine +
+    ('"{0}" "{1}" %*' -f $node, $stableEntry) + [Environment]::NewLine
   [IO.File]::WriteAllText($launcher,$launcherText,(New-Object Text.ASCIIEncoding))
-  # Keep the .vibe-monitor state directory, including identity and telemetry.
-  # Remove only prior managed code installs, never the user's data directory.
-  foreach($sub in @("runtime\versions","runtime\packages")){
+
+  # Preserve user identity / telemetry state; remove only superseded managed binaries.
+  foreach($sub in @("runtime\versions","runtime\packages")) {
     $target = Join-Path $state $sub
-    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force}
+    if(Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
   }
   Write-Output "SINGLE_VERSION_READY: $version"
   Write-Output "INSTALL=$install"
@@ -169,6 +149,6 @@ try {
   Write-Output "Restart Antigravity to discard previously loaded MCP processes."
   $finished = $true
 } finally {
-  if(Test-Path $stage){Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
-  if(-not $finished){Write-Warning "Single-version setup did not complete. Inspect errors before deleting anything else."}
+  if(Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+  if(-not $finished) { Write-Warning "Single-version setup did not complete. Inspect errors before deleting anything else." }
 }
