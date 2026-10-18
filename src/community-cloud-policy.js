@@ -10,8 +10,8 @@ import {POLICY_V2_FAMILIES} from "./decision-policy.js";
 export const COMMUNITY_POLICY_URL="https://vibe-api.fde.fan/free/policy";
 export const COMMUNITY_POLICY_KEY_ID="community-ed25519-v1";
 export const COMMUNITY_POLICY_NEXT_KEY_ID="community-ed25519-v2";
-// Both trust anchors stay OFF until audited build-time provisioning.
-export const COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM=null;
+// Production Cloud Ed25519 verification root. Key rotation uses NEXT slot.
+export const COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtyq/AYWmIA1/zgDiMopCPeitUBqtUe1f8G3nheuMcY=\n-----END PUBLIC KEY-----\n";
 export const COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
 const MAX_AGE=3600; // signed policy can live at most one hour, RAM only
 const REFRESH=900;  // refresh from Cloud after fifteen minutes
@@ -127,7 +127,7 @@ export function createCommunityPolicyClient(){
   try{
    const response=await fetchImpl(COMMUNITY_POLICY_URL,{
     method:"GET",headers:{accept:"application/json"},cache:"no-store",
-    redirect:"error",signal:AbortSignal.timeout(1500)
+    redirect:"error",signal:AbortSignal.timeout(5000)
    });
    if(!response?.ok||Number(response.headers?.get?.("content-length")||0)>MAX_BYTES)
     throw Error("cloud_unavailable");

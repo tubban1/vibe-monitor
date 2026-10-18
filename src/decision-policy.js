@@ -15,7 +15,7 @@ const DEFAULT_MIN_SIGNALS = Object.freeze({ S3: 3, S4: 4, S5: 4 });
 const RANGES = Object.freeze({
   S2: [30, 45], S3: [45, 65], S4: [65, 85], S5: [80, 100]
 });
-export const LOCAL_SCORING_POLICY_KEY = "local-v1";
+export const LOCAL_SCORING_POLICY_KEY = "local-minimal-v2";
 
 function plainObject(value) {
   return !!value && typeof value === "object" &&
@@ -28,13 +28,37 @@ function boundedInteger(value, min, max) {
 
 export function sanitizeDecisionPolicy(input) {
   if (!plainObject(input) || input.schemaVersion !== POLICY_V2_SCHEMA_VERSION) return null;
-  const allowed = new Set(["schemaVersion","policyId","revision","stageThresholds","minSupportingSignals","familyScoreWeights"]);
+  const allowed = new Set(["schemaVersion","policyId","revision","stageThresholds","minSupportingSignals","familyScoreWeights","signalWeights","adviceRules"]);
   if (Object.keys(input).some(k => !allowed.has(k))) return null;
   if (typeof input.policyId !== "string" || !/^[a-z][a-z0-9-]{2,63}$/.test(input.policyId)) return null;
   if (!boundedInteger(input.revision, 1, 1_000_000)) return null;
   const incoming = input.stageThresholds;
   const minInput = input.minSupportingSignals;
   const weightInput = input.familyScoreWeights ?? {};
+  const weightsIn = input.signalWeights ?? {}, guidanceIn = input.adviceRules ?? {};
+  if (!plainObject(weightsIn) || !plainObject(guidanceIn)) return null;
+  if (Object.keys(weightsIn).some(f => !POLICY_V2_FAMILIES.includes(f)) ||
+      Object.keys(guidanceIn).some(f => !POLICY_V2_FAMILIES.includes(f))) return null;
+  const signalWeights = {}, adviceRules = {};
+  for (const [family, weights] of Object.entries(weightsIn)) {
+    if (!plainObject(weights) || Object.keys(weights).length > 24) return null;
+    for (const [name, n] of Object.entries(weights))
+      if (!/^[a-z][a-z0-9_]{1,63}$/.test(name) ||
+          !boundedInteger(n, 0, 45)) return null;
+    signalWeights[family] = Object.freeze({...weights});
+  }
+  for (const [family, guidance] of Object.entries(guidanceIn)) {
+    if (!plainObject(guidance) ||
+        Object.keys(guidance).some(k => !["doNow","prepare","doNotDoYet","nextTrigger","whyItMatters"].includes(k))) return null;
+    const checked = {};
+    for (const k of Object.keys(guidance)) {
+      const a = ["nextTrigger","whyItMatters"].includes(k) ? [guidance[k]] : guidance[k];
+      if (!Array.isArray(a) || a.length > 4 ||
+          a.some(t => typeof t !== "string" || t.length < 1 || t.length > 300 || /[\x00-\x1f]/.test(t))) return null;
+      checked[k] = ["nextTrigger","whyItMatters"].includes(k) ? a[0] : Object.freeze([...a]);
+    }
+    adviceRules[family] = Object.freeze(checked);
+  }
   if (!plainObject(incoming) || !plainObject(minInput) || !plainObject(weightInput)) return null;
   if (Object.keys(incoming).some(k => !Object.hasOwn(DEFAULT_THRESHOLDS, k)) ||
       Object.keys(minInput).some(k => !Object.hasOwn(DEFAULT_MIN_SIGNALS, k)) ||
@@ -67,7 +91,8 @@ export function sanitizeDecisionPolicy(input) {
     schemaVersion: 2, policyId: input.policyId, revision: input.revision,
     stageThresholds: Object.freeze(thresholds),
     minSupportingSignals: Object.freeze(minSupportingSignals),
-    familyScoreWeights: Object.freeze(familyScoreWeights)
+    familyScoreWeights: Object.freeze(familyScoreWeights),
+    signalWeights: Object.freeze(signalWeights), adviceRules: Object.freeze(adviceRules)
   });
 }
 
@@ -104,4 +129,23 @@ export function evaluateScoringStage(score, supportingSignals, input, family) {
   if (supporting < minimum.S4 && ["S4","S5"].includes(stage)) stage = "S3";
   if (supporting < minimum.S5 && stage === "S5") stage = "S4";
   return stage;
+}
+
+
+// Signed data-only scoring. No executable Cloud expressions and no access
+// to source content, filesystem, or network from the policy interpreter.
+export function scoreFromSignedSignals(signals, policy, family, fallback) {
+  const weights = sanitizeDecisionPolicy(policy)?.signalWeights?.[family];
+  if (!weights || !Object.keys(weights).length) return fallback;
+  let score = 0;
+  const seen = new Set();
+  for (const {name, active} of signals || []) {
+    if (!active || seen.has(name)) continue;
+    seen.add(name);
+    score += weights[name] ?? 0;
+  }
+  return Math.max(0, Math.min(100, score));
+}
+export function signedAdviceForFamily(policy, family) {
+  return sanitizeDecisionPolicy(policy)?.adviceRules?.[family] ?? null;
 }
