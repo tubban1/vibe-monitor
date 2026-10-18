@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Fail-closed checks for the CURRENT public repo surface.
 
-Until the open-source client is actually published, do not mistake a public
-repository containing docs for an OSS client release.
+Distinguish prerelease previews from stable, public open-client source.
+Always reject secrets, private website source, and unreviewed public files.
 """
 from pathlib import Path
 import re
+import json
 import sys
 
 root = Path(__file__).resolve().parents[1]
@@ -23,14 +24,22 @@ privacy = require("docs/governance/TELEMETRY_PRIVACY_V1.md")
 issue = require(".github/ISSUE_TEMPLATE/beta-access.yml")
 if "https://vibe.fde.fan" not in readme:
     errors.append("official_website_missing")
-client_source_disclosed = re.search(r"\bclient[\s-]+source\b", readme, re.IGNORECASE)
-unreleased_disclosed = re.search(
-    r"\bnot\b(?:[^\w]+been)?[^\w]+(?:merged|published|released|shipped)\b",
-    readme,
-    re.IGNORECASE,
-)
-if not client_source_disclosed or not unreleased_disclosed:
-    errors.append("unreleased_oss_status_disclosure_missing")
+manifest=json.loads(require("package.json"))
+if manifest.get("private") is False:
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", manifest.get("version","")):
+        errors.append("stable_package_semver_invalid")
+    if manifest.get("name") != "@vibe-monitor/setup" or manifest.get("license") != "Apache-2.0":
+        errors.append("stable_package_identity_invalid")
+    if "@vibe-monitor/setup@" + manifest.get("version","") not in readme:
+        errors.append("stable_install_instructions_missing")
+else:
+    client_source_disclosed = re.search(r"\bclient[\s-]+source\b", readme, re.IGNORECASE)
+    unreleased_disclosed = re.search(
+        r"\bnot\b(?:[^\w]+been)?[^\w]+(?:merged|published|released|shipped)\b",
+        readme,re.IGNORECASE
+    )
+    if not client_source_disclosed or not unreleased_disclosed:
+        errors.append("unreleased_oss_status_disclosure_missing")
 if not privacy or "telemetry" not in privacy.lower():
     errors.append("beta_privacy_disclosure_missing")
 if not issue or "beta" not in issue.lower():
@@ -56,4 +65,4 @@ if (root / "src").is_dir():
 if errors:
     print("PUBLIC SURFACE AUDIT FAILED\n" + "\n".join(errors), file=sys.stderr)
     sys.exit(1)
-print("PUBLIC SURFACE AUDIT PASSED: beta privacy, website ownership and repo boundary")
+print("PUBLIC SURFACE AUDIT PASSED: publishable source identity, privacy and repository boundary")
