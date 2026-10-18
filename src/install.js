@@ -581,7 +581,7 @@ export async function installRuntimeVersion({
 export async function installRuntime({
   local = false,
   cliPath,
-  packageSpec = verifiedPackageTarballUrl(CLIENT_VERSION)
+  packageSpec = null
 } = {}) {
   ensureDir(runtimeRoot());
   let record;
@@ -606,7 +606,7 @@ export async function installRuntime({
     nodeRuntime = await ensureBundledNode();
     const installed = await installRuntimeVersion({
       version: CLIENT_VERSION,
-      packageSpec,
+      packageSpec: packageSpec ?? verifiedPackageTarballUrl(CLIENT_VERSION),
       nodeRuntime
     });
     entry = installed.entry;

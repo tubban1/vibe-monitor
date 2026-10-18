@@ -17,7 +17,7 @@ import {
   submitArchitectureReviewResponse,
   syncCloudDevice,
   syncTelemetry,
-  syncFreeTelemetry
+  createFreeTelemetryDrain
 } from "./cloud.js";
 import {
   ARP_PROTOCOL_VERSION,
@@ -262,16 +262,50 @@ export function buildSkippedSessionPayload(reason = "user_skipped", callId = nul
   };
 }
 
+// Scoped to one MCP server instance. Never share a host's project path
+// between Agent processes. Successful assessments bind the implicit target.
+export function createMcpProjectContext(cwd = () => process.cwd()) {
+  let confirmedRoot = null;
+  let lastExplicitSuccess = 0;
+  let nextExplicitOrder = 0;
+  return {
+    resolve(inputPath) {
+      const explicit = typeof inputPath === "string" && inputPath.trim().length > 0;
+      return {
+        path: explicit ? inputPath : (confirmedRoot || cwd()),
+        explicit,
+        order: explicit ? ++nextExplicitOrder : 0
+      };
+    },
+    confirm(selection, result) {
+      // Never bind failed, disabled, partial or deferred assessments.
+      if (result?.status?.assessmentAvailable !== true ||
+          typeof result?.project?.root !== "string" ||
+          !result.project.root) return;
+      if (selection.explicit) {
+        // Late older calls must not override a newer confirmed selection.
+        if (selection.order > lastExplicitSuccess) {
+          confirmedRoot = result.project.root;
+          lastExplicitSuccess = selection.order;
+        }
+      } else if (!confirmedRoot) {
+        confirmedRoot = result.project.root;
+      }
+    }
+  };
+}
+
 export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   const server = new McpServer({ name: "vibe-monitor", version: CLIENT_VERSION });
   const allowedAgents = new Set(["codex", "claude", "cursor", "antigravity", "trae"]);
   const agent = allowedAgents.has(explicitAgent) ? explicitAgent : detectAgentHost();
   const sessionId = crypto.randomUUID();
   const budget = createMonitoringBudgetSession();
+  const projectContext = createMcpProjectContext();
   const activeSessionScans = new Set();
   if(!isOpenClientDistribution())void syncCloudDevice().catch(() => {});
   let noticesShownThisSession = 0;
-  const pathSchema = z.string().optional().describe("Path inside ONE specific project Git repository. Never pass a workspace parent that contains several independent repositories. Defaults to coding agent current working directory.");
+  const pathSchema = z.string().optional().describe("Path inside ONE specific project Git repository. Never pass a workspace parent that contains several independent repositories. Defaults to last successfully assessed project in this MCP session, then MCP process working directory.");
 
   server.registerTool("vibe_version", {
     description: "Get the Vibe Monitor version currently running in this MCP process, the installed current/previous runtime versions, staged update, and update state. A process may still run an older bundle after the installed pointer changes. Use this tool when the user asks which Vibe Monitor version is running or installed. schemaVersion and evidenceVersion are data format versions, NOT the software version.",
@@ -302,6 +336,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     { persist, kind, forcePolicy = false, callId = crypto.randomUUID(), interruptible = false, signal = null, onPhase = null } = {}
   ) {
     if (signal?.aborted) throw new ScanControlError("scan_cancelled");
+    const selection = projectContext.resolve(inputPath);
     onPhase?.("policy");
     const policyStartedAt = Date.now();
     const remotePolicy = await cancelAware(resolveDistributionPolicy({fetchPolicy:fetchRemotePolicy,force:forcePolicy}),signal);
@@ -322,9 +357,9 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     onPhase?.("analysis");
     const raw = interruptible
       ? await runInterruptibleScan({
-        inputPath: inputPath || process.cwd(), persist, kind, policy: remotePolicy.config
+        inputPath: selection.path, persist, kind, policy: remotePolicy.config
       }, { signal, timeoutMs: 10_000 })
-      : budget.analyze(inputPath || process.cwd(), {
+      : budget.analyze(selection.path, {
         persist, kind, policy: remotePolicy.config
       });
     const analysisMs = Date.now() - analysisStartedAt;
@@ -344,6 +379,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
         analysisMs
       }
     };
+    projectContext.confirm(selection, result);
     return {
       result,
       remotePolicy,
@@ -352,11 +388,12 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     };
   }
 
+  const freeTelemetryDrain = isOpenClientDistribution() ? createFreeTelemetryDrain() : null;
   let cloudSyncPromise = null;
   let cloudSyncRequested = false;
 
   function syncCloudBestEffort() {
-    if(isOpenClientDistribution())return syncFreeTelemetry();
+    if(freeTelemetryDrain)return freeTelemetryDrain.request();
     cloudSyncRequested = true;
     if (cloudSyncPromise) return cloudSyncPromise;
 
@@ -898,7 +935,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
 
   // Outcome records stay local; only approved, bounded anonymous enum summaries may queue for Free telemetry.
   function outcomeProject(pathValue) {
-    const identity = projectIdentity(findProjectRoot(pathValue || process.cwd()));
+    const identity = projectIdentity(findProjectRoot(projectContext.resolve(pathValue).path));
     return { identity, state: loadState(identity.id) };
   }
 
@@ -1007,5 +1044,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Resume persisted offline events without requiring a new tool call.
+  freeTelemetryDrain?.request();
   scheduleAutomaticUpdate();
 }

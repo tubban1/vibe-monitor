@@ -7,7 +7,7 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {buildAgentResult} from "../src/mcp.js";
+import {buildAgentResult,createMcpProjectContext} from "../src/mcp.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -32,7 +32,7 @@ test("Unified open client has Apache-2.0 license, reproducible deps, and safe re
  assert.equal(pkg.license,"Apache-2.0");
  assert.equal(typeof pkg.private,"boolean");
  if(pkg.private)assert.match(pkg.version,/-beta\./,"unpublished source preview must be labeled prerelease");
- else assert.match(pkg.version,/^\d+\.\d+\.\d+$/,"publishable client must have stable semver");
+ else assert.match(pkg.version,/^\d+\.\d+\.\d+(?:-rc\.\d+)?$/,"publishable client must have stable or release-candidate semver");
  assert.equal(pkg.name,"@vibe-monitor/setup");
  assert.equal(pkg.version,lock.packages[""].version);
  assert.deepEqual(pkg.dependencies,lock.packages[""].dependencies);
@@ -405,4 +405,32 @@ test("Future open client preserves Beta telemetry intelligence as bounded data",
  assert.equal(wire.payload.signals[0].name,"dependency_cycle");
  assert.ok(Buffer.byteLength(JSON.stringify(wire))<=4096);
  assert.doesNotMatch(JSON.stringify(wire),/secret|private|\/Users\//);
+});
+
+test("MCP binds a project only after successful assessment; other servers stay isolated",()=>{
+ const a="/qa/repo-A",b="/qa/repo-B";
+ const context=createMcpProjectContext(()=>"/qa/host-cwd");
+ const unavailable=context.resolve();
+ assert.equal(unavailable.path,"/qa/host-cwd");
+ context.confirm(unavailable,{status:{assessmentAvailable:false},project:{root:"/qa/host-cwd"}});
+ assert.equal(context.resolve().path,"/qa/host-cwd");
+ const start=context.resolve(a);
+ context.confirm(start,{status:{assessmentAvailable:true},project:{root:a}});
+ assert.equal(context.resolve().path,a);
+ const invalid=context.resolve("/qa/not-a-repo");
+ context.confirm(invalid,{status:{assessmentAvailable:false},project:{root:"/qa/not-a-repo"}});
+ assert.equal(context.resolve().path,a);
+ const change=context.resolve(b);
+ context.confirm(change,{status:{assessmentAvailable:true},project:{root:b}});
+ assert.equal(context.resolve().path,b);
+ assert.equal(context.resolve(a).path,a,"explicit path overrides session default");
+ const other=createMcpProjectContext(()=>"/qa/other-host");
+ assert.equal(other.resolve().path,"/qa/other-host");
+});
+test("MCP concurrent explicit project selection ignores late older results",()=>{
+ const context=createMcpProjectContext(()=>"/qa/host");
+ const first=context.resolve("/qa/older"),second=context.resolve("/qa/newer");
+ context.confirm(second,{status:{assessmentAvailable:true},project:{root:"/qa/newer"}});
+ context.confirm(first,{status:{assessmentAvailable:true},project:{root:"/qa/older"}});
+ assert.equal(context.resolve().path,"/qa/newer");
 });
