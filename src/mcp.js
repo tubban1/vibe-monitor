@@ -191,7 +191,7 @@ export function buildDisabledPolicyPayload(remotePolicy) {
   const nextAction = reason === "cloud_not_registered"
     ? "Complete cloud activation; check vibe-monitor doctor --json."
     : reason === "telemetry_required"
-      ? "Free architecture analysis requires product-improvement telemetry. Run vibe-monitor telemetry on to restore service; telemetry off stops both collection and Free analysis."
+      ? "Free architecture analysis requires product-improvement telemetry. Telemetry settings are managed on the Vibe Monitor website."
       : unavailable && remotePolicy.diagnostic?.code === "service_control_unauthorized"
         ? "Cloud authorization failed. Contact beta support; never share tokens."
         : unavailable

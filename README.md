@@ -31,46 +31,29 @@ Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
 [Full Agent evaluation flow and report template →](docs/AGENT_EVALUATION.md)
 
-## Try the current Beta
+## Install Vibe Monitor 1.0.0
 
-The published `@vibe-monitor/setup@beta` is **private Beta software**, not the future public Free release. New installations currently **require an activation code** and **the disclosed Beta telemetry**. Review the [Beta telemetry contract](docs/governance/TELEMETRY_PRIVACY_V1.md) and obtain a code before running:
+Vibe Monitor is one open-source client, available for macOS, Windows and Linux. Install the public stable package when the official release is published:
 
 ```bash
-npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@beta install
+npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@1.0.0 install
 ```
 
-The default official Cloud API is `https://vibe-api.fde.fan`. [Installation, verification, error handling and uninstall guide →](docs/INSTALL.md)
+The command above cannot run from npm until version 1.0.0 is published. The source branch and GitHub Actions release gate are not substitutes for publication.
 
-**Future direction: one installer, Free / Pro / Team.** Free should work without creating an account, with clearly disclosed **required product-improvement telemetry**: stopping telemetry disables Free analysis. Pro/Team use the *same client* and unlock Cloud services through authentication and server-enforced entitlements. This Free onboarding/telemetry contract is **not shipped in Beta.41**.
+### Architecture policies
 
-**One Free plan, two separate Cloud interfaces:** `GET /free/policy`
-delivers signed architecture-analysis strategy **from Cloud to client**;
-`POST /free/telemetry` sends bounded pseudonymous product/architecture
-signals **from Free client to Cloud**. **Community is an internal signing/profile identifier,
-not a subscription tier.** The unpublished historical policy URL has no compatibility alias. Free, Pro and
-Team share the same installer. Fetching a strategy never authorizes a
-telemetry upload; both channels have independent security checks and
-deployment gates. Neither new production endpoint is live yet.
+The client scans source locally and accepts signed architecture-scoring and guidance rules from `GET https://vibe-api.fde.fan/free/policy`. It retains a small local fallback. Proprietary rules stay on the private Cloud side; the client never executes arbitrary remote code.
 
-### Planned Free service and telemetry exchange (release gate pending)
+### Product telemetry
 
-The Free service requires product-improvement telemetry covering usage, performance, technical/project categories, architecture change, recommendations, and explicit user or Agent outcome reports. A full scan may contribute coarse inferred product type, technology, deployment, architecture and test classifications and pseudonymous project/finding/outcome links—not raw source, diffs, repository names/URLs, file paths, prompts, credentials or free-form notes.
+Telemetry collects bounded, pseudonymous product usage, architecture signals and outcome events; it never sends source code, file paths, prompts, project names or credentials. Collection defaults to on at installation. `vibe-monitor telemetry status` and `vibe-monitor telemetry inspect` remain read-only diagnostics. Changing telemetry via CLI (`on`, `off`, or `intelligence on/off`) is disabled; the intended control surface is the website. Until the website has an authenticated control path, this interface is not yet fully operational.
 
-On Free, `vibe-monitor telemetry off` **stops collection and architecture analysis**; `vibe-monitor telemetry on` restores both. `vibe-monitor telemetry inspect` shows queued events. Free installation and setup reject `--no-telemetry`. Local diagnostics and security inspection and uninstall remain accessible. Pro/Team entitlements require verified Cloud grants; this is not a self-declared premium bypass.
+Product events are uploaded separately through `POST /free/telemetry` only when the production gateway and Neon intake are enabled. This intake has independent rate-limiting, bounded payload validation and an origin shared secret; a successful policy fetch does not imply telemetry acceptance. Unsigned or unavailable Cloud policy falls back to the minimal local rules.
 
-**Not enabled in production:** This source audit still hard-disables Free Cloud uploads. Before official release, the disclosed data categories, lawful basis, regional handling, long-term Cloud preservation, separately audited legally required erasure and any distinct purposes such as model training or sharing need independent legal review plus live technical acceptance. Requiring telemetry to use a service does not by itself establish legal consent.
+The Cloud strategy endpoint is active. The telemetry endpoint is subject to production activation and verification, and must not be described as live until a real public upload succeeds. Cloud telemetry records have no automatic TTL or scheduled purge; legally required scoped erasure is a separate auditable process. The database is in AWS Singapore.
 
-
-**Planned long-term Cloud policy for Free/Pro/Team:** accepted telemetry,
-architecture evolution, recommendations, feedback and outcome verification
-are preserved with no automatic Cloud TTL, scheduled deletion or age-based
-purge. Local logs, caches and unsent queues may be cleaned separately for
-performance and disk usage. Identifiers remain pseudonymous (not necessarily
-anonymous). Lawful scoped erasure is separately authorized and audited.
-The current Neon region is AWS Singapore (`aws-ap-southeast-1`), subject to
-appropriate international data-transfer notice and safeguards. This is
-a release design, not a claim that Free production collection is live or that
-legal/data-transfer review has been completed.
+[Privacy & Data Practices](docs/governance/TELEMETRY_PRIVACY_V1.md)
 
 ## What happens to your code and computer?
 
@@ -85,8 +68,4 @@ legal/data-transfer review has been completed.
 
 ## Is Vibe Monitor open source?
 
-The **public client-source review is already visible in [Draft PR #5](https://github.com/tubban1/vibe-monitor/pull/5)**. Its source has **not** been merged to `main` or formally released as an approved open-source package. The npm Beta remains privately licensed. Do not confuse a public Draft PR or passing CI with release approval.
-
-The website and proprietary Vibe Cloud live in a separate private repository. Public client, Cloud signing, IP/licensing, Windows release gates, and production service-level entitlements must pass their own reviews before a stable release.
-
-[Request Beta access](https://github.com/tubban1/vibe-monitor/issues/new?template=beta-access.yml). GitHub issues are public: never post activation codes, credentials, private URLs, source files, or logs with sensitive information.
+Yes. The client is Apache-2.0 and its source is in this public repository. Its proprietary cloud scoring configuration is separate and signed. This repository contains the single unified client, not separate Free, Pro or Team installers. Stable npm distribution and provenance are controlled by the official GitHub Actions release workflow.

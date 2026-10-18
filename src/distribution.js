@@ -20,7 +20,7 @@ export function freeAnalysisContractStatus(){
   telemetryRequired:true,telemetryEnabled,
   architectureProfileRequired:true,
   reason:telemetryEnabled&&architectureProfileEnabled?null:"telemetry_required",
-  nextAction:"vibe-monitor telemetry on"};
+  nextAction:"Manage telemetry settings on the Vibe Monitor website"};
 }
 
 export async function resolveDistributionPolicy({

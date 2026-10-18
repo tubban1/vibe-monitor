@@ -574,9 +574,8 @@ export async function reportLifecycleEvent(event, details = {}) {
   }
 }
 
-// Account-free transport is an independently approved release switch.
-// Keep off until endpoint, region, retention and privacy QA are authorized.
-export const FREE_TELEMETRY_UPLOAD_ENABLED = false;
+// Account-free product telemetry: bounded, allowlisted V4 event records only.
+export const FREE_TELEMETRY_UPLOAD_ENABLED = true;
 const FREE_TELEMETRY_URL = "https://vibe-api.fde.fan/free/telemetry";
 async function syncFreeTelemetryOnce({fetchImpl=globalThis.fetch}={}) {
  if(!isOpenClientDistribution())return {uploaded:0,reason:"private_beta_mode"};

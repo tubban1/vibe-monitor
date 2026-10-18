@@ -78,6 +78,17 @@ jobs:
             [COMMUNITY_POLICY_KEY_ID]:COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,
             [COMMUNITY_POLICY_NEXT_KEY_ID]:COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM
           }}))throw Error('production_cloud_policy_signature_invalid');
+          // Non-persisting canary: authenticated ingress rejects empty batch at
+          // the schema validator. A disabled gateway or missing secret cannot pass.
+          const intake=await fetch('https://vibe-api.fde.fan/free/telemetry',{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({events:[]}),redirect:'error',
+            signal:AbortSignal.timeout(8000)
+          });
+          if(intake.status!==400)throw Error('production_telemetry_intake_unavailable:'+intake.status);
+          const rejection=await intake.json();
+          if(rejection.error!=='invalid_batch')throw Error('production_telemetry_intake_unverified');
+
           JS
       - name: Prepare reproducible npm package and SHA256
         run: |
