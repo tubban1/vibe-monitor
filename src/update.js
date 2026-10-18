@@ -15,6 +15,7 @@ import {
   ensureBundledNode,
   installRuntimeVersion,
   readRuntimePointer,
+  runtimeRecordEntry,
   runtimeVersionEntry,
   runtimeVersionRoot,
   writeRuntimePointer
@@ -281,7 +282,15 @@ export function compareVersions(a, b) {
 }
 
 function currentRuntimeVersion() {
-  return readRuntimePointer("current")?.version || CLIENT_VERSION;
+  const pointer = readRuntimePointer("current");
+  // A previous private-Beta runtime can leave current.json behind after its
+  // managed binaries were removed. An orphan pointer is not an installation.
+  // Never report the orphan Beta version as the current open-client package.
+  if (isOpenClientDistribution() && pointer) {
+    const entry = runtimeRecordEntry(pointer);
+    if (!entry || !fs.existsSync(entry)) return CLIENT_VERSION;
+  }
+  return pointer?.version || CLIENT_VERSION;
 }
 
 function failureCode(error) {

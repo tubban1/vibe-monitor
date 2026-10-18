@@ -7,7 +7,9 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {buildAgentResult,createMcpProjectContext} from "../src/mcp.js";
+import {buildAgentResult,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
+import {updateStatus} from "../src/update.js";
+import {CLIENT_VERSION} from "../src/constants.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -433,4 +435,48 @@ test("MCP concurrent explicit project selection ignores late older results",()=>
  context.confirm(second,{status:{assessmentAvailable:true},project:{root:"/qa/newer"}});
  context.confirm(first,{status:{assessmentAvailable:true},project:{root:"/qa/older"}});
  assert.equal(context.resolve().path,"/qa/newer");
+});
+
+test("Implicit MCP workspace rejects IDE install directory and unknown cwd",()=>{
+ assert.equal(isSafeImplicitProjectCwd("C:\\\\Users\\\\i95i\\\\AppData\\\\Local\\\\Programs\\\\antigravity"),false);
+ assert.equal(isSafeImplicitProjectCwd("C:\\\\Program Files\\\\Antigravity"),false);
+ assert.equal(isSafeImplicitProjectCwd("/a/nonexistent/project"),false);
+ const repo=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-implicit-git-"));
+ try {
+  fs.mkdirSync(path.join(repo,".git"));
+  assert.equal(isSafeImplicitProjectCwd(repo),true);
+  const selected=createMcpProjectContext(()=>repo);
+  assert.equal(selected.resolve().fallbackToHostCwd,true);
+  const explicit=selected.resolve(repo);
+  assert.equal(explicit.fallbackToHostCwd,false);
+  selected.confirm(explicit,{status:{assessmentAvailable:true},project:{root:repo}});
+  assert.equal(selected.resolve().fallbackToHostCwd,false);
+ } finally {fs.rmSync(repo,{recursive:true,force:true});}
+ const denied=projectPathRequiredPayload();
+ assert.equal(denied.status.assessmentAvailable,false);
+ assert.equal(denied.monitoring.reason,"project_path_required");
+ assert.notEqual(denied.status.findingCount,0);
+});
+
+test("Open client ignores orphaned private Beta runtime pointer without hiding live pointer",async()=>{
+ const prev=process.env.VIBE_MONITOR_HOME;
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-orphan-pointer-"));
+ try {
+  process.env.VIBE_MONITOR_HOME=home;
+  const runtime=path.join(home,"runtime");
+  fs.mkdirSync(runtime,{recursive:true});
+  const pointer={schemaVersion:1,type:"version",version:"0.3.0-beta.26"};
+  fs.writeFileSync(path.join(runtime,"current.json"),JSON.stringify(pointer));
+  let status=await updateStatus({refresh:false});
+  assert.equal(status.currentVersion,CLIENT_VERSION,"stale Beta registration must not be reported as installed RC");
+  const bundle=path.join(runtime,"versions","0.3.0-beta.26","node_modules","@vibe-monitor","setup","dist","vibe-monitor.mjs");
+  fs.mkdirSync(path.dirname(bundle),{recursive:true});
+  fs.writeFileSync(bundle,"// test-only existing runtime");
+  status=await updateStatus({refresh:false});
+  assert.equal(status.currentVersion,"0.3.0-beta.26","existing managed runtime should still surface version mismatch");
+ } finally {
+  if(prev===undefined)delete process.env.VIBE_MONITOR_HOME;
+  else process.env.VIBE_MONITOR_HOME=prev;
+  fs.rmSync(home,{recursive:true,force:true});
+ }
 });

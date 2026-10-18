@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import nodePath from "node:path";
 import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -262,6 +264,38 @@ export function buildSkippedSessionPayload(reason = "user_skipped", callId = nul
   };
 }
 
+// IDE launchers often start MCP with their *application installation* as
+// cwd, not the editor's open workspace. Scanning such directories can appear
+// healthy while failing to inspect any user code. Require an explicit project
+// selection unless cwd can genuinely be identified as a project.
+export function isSafeImplicitProjectCwd(candidate) {
+  if (typeof candidate !== "string" || !candidate.trim()) return false;
+  const normalized = candidate.split(String.fromCharCode(92)).join("/").replace(/\/+/g, "/").toLowerCase();
+  if (normalized.includes("/appdata/local/programs/") ||
+      normalized.includes("/program files/") ||
+      normalized.includes("/program files (x86)/")) return false;
+  try {
+    const root = findProjectRoot(candidate);
+    return fs.existsSync(nodePath.join(root, ".git")) ||
+      ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"].some(
+        filename => fs.existsSync(nodePath.join(root, filename))
+      );
+  } catch {
+    return false;
+  }
+}
+
+export function projectPathRequiredPayload() {
+  return {
+    serviceEnabled: null,
+    disabledBy: "project_selection",
+    status: { assessmentAvailable: false, attentionRequired: false,
+      highestStage: "unknown", findingCount: null, attentionCount: null },
+    monitoring: { mode: "unavailable", reason: "project_path_required",
+      nextAction: "Pass the absolute path of the open coding project to vibe_session_start or vibe_project_status. The IDE installation directory is not a coding project." }
+  };
+}
+
 // Scoped to one MCP server instance. Never share a host's project path
 // between Agent processes. Successful assessments bind the implicit target.
 export function createMcpProjectContext(cwd = () => process.cwd()) {
@@ -274,6 +308,7 @@ export function createMcpProjectContext(cwd = () => process.cwd()) {
       return {
         path: explicit ? inputPath : (confirmedRoot || cwd()),
         explicit,
+        fallbackToHostCwd: !explicit && !confirmedRoot,
         order: explicit ? ++nextExplicitOrder : 0
       };
     },
@@ -305,7 +340,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   const activeSessionScans = new Set();
   if(!isOpenClientDistribution())void syncCloudDevice().catch(() => {});
   let noticesShownThisSession = 0;
-  const pathSchema = z.string().optional().describe("Path inside ONE specific project Git repository. Never pass a workspace parent that contains several independent repositories. Defaults to last successfully assessed project in this MCP session, then MCP process working directory.");
+  const pathSchema = z.string().optional().describe("Absolute path to ONE coding project (prefer its Git repository root), NOT the IDE's application folder or a parent of multiple repositories. When omitted, uses the last successfully assessed project or a recognizable Git/project cwd; otherwise returns project_path_required.");
 
   server.registerTool("vibe_version", {
     description: "Get the Vibe Monitor version currently running in this MCP process, the installed current/previous runtime versions, staged update, and update state. A process may still run an older bundle after the installed pointer changes. Use this tool when the user asks which Vibe Monitor version is running or installed. schemaVersion and evidenceVersion are data format versions, NOT the software version.",
@@ -337,6 +372,10 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   ) {
     if (signal?.aborted) throw new ScanControlError("scan_cancelled");
     const selection = projectContext.resolve(inputPath);
+    if (selection.fallbackToHostCwd && !isSafeImplicitProjectCwd(selection.path)) {
+      return { result: null, remotePolicy: null, disabled: true, callId,
+        disabledPayload: projectPathRequiredPayload() };
+    }
     onPhase?.("policy");
     const policyStartedAt = Date.now();
     const remotePolicy = await cancelAware(resolveDistributionPolicy({fetchPolicy:fetchRemotePolicy,force:forcePolicy}),signal);
