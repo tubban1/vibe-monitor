@@ -87,11 +87,11 @@ export function createMonitoringBudgetSession({ scanLimits = null } = {}) {
     const decisionPolicy = policy.decisionPolicy || null;
     const policyKey = scoringPolicyIdentity(decisionPolicy).key+monitorPolicyFingerprint(policy.enabledMonitors);
     const fingerprint = projectFingerprint
-      ? projectFingerprint + ":" + revision + (policyKey === "local-v1" ? "" : ":" + policyKey)
+      ? projectFingerprint + ":" + revision + (policyKey === "local-minimal-v2" ? "" : ":" + policyKey)
       : null;
     // Never reuse a cached assessment from a different scoring policy.
     const previouslyCached = memory.get(root);
-    const memoryCached = (previouslyCached?.result?.scoringPolicy?.key || "local-v1") === policyKey
+    const memoryCached = (previouslyCached?.result?.scoringPolicy?.key || "local-minimal-v2") === policyKey
       ? previouslyCached : null;
 
     if (

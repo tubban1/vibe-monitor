@@ -9,7 +9,7 @@ import { findingDetail } from "./finding-detail.js";
 import { enrichFindingIntelligence } from "./finding-intelligence.js";
 import { observeOutcomeCheckpoint } from "./outcomes.js";
 import { detectEncodedIdContract } from "./contract-evidence.js";
-import { scoringPolicyIdentity,monitorPolicyFingerprint } from "./decision-policy.js";
+import { scoringPolicyIdentity,monitorPolicyFingerprint,scoreFromSignedSignals,signedAdviceForFamily } from "./decision-policy.js";
 
 function fileMap(snapshot) {
   return new Map((snapshot?.files || []).map(file => [file.path, file]));
@@ -25,6 +25,13 @@ function sumField(files, field) {
 
 function signal(active, name, value, evidence, bucket = null, independenceGroup = null) {
   return { active: Boolean(active), name, value, evidence, bucket, independenceGroup: independenceGroup || name };
+}
+
+// Minimal offline safety baseline: evidence collection still works without
+// Cloud, but proprietary severity weights and recommendations are NOT bundled.
+function localFallbackScore(signals) {
+  const independent = new Set((signals || []).filter(s=>s.active).map(s=>s.independenceGroup||s.name));
+  return Math.min(40,independent.size*10); // local S1/S2 only
 }
 
 function findingId(projectId, family, target) {
@@ -468,28 +475,20 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
   const structural = file.structuralEvidence?.unavailable ? null : file.structuralEvidence;
   const architectureContext = architectureRoleForTarget(file.path);
 
-  let score = 0;
   const signals = [];
 
   const sizePoints = file.loc >= 4000 ? 25 : file.loc >= 2000 ? 20 : file.loc >= 1200 ? 15 : file.loc >= 800 ? 10 : file.loc >= 500 ? 5 : 0;
-  score += sizePoints;
   signals.push(signal(sizePoints > 0, "size", file.loc, "Direct LOC observation", sizePoints >= 20 ? "high" : sizePoints ? "medium" : "low", "size"));
 
-  const responsibilityPoints = clamp((resp - 2) * 6, 0, 24);
-  score += responsibilityPoints;
   signals.push(signal(resp >= 4, "responsibility_concentration", resp, "Heuristic classification from code vocabulary", resp >= 7 ? "high" : resp >= 4 ? "medium" : "low", "responsibility"));
 
   // v0.2 observes mixed-layer work but does not score it yet. It is highly
   // correlated with responsibility concentration and needs beta calibration.
   signals.push(signal(file.mixedLayerWork, "mixed_layer_work", file.mixedLayerWork ? 1 : 0, "Heuristic overlap of presentation and infrastructure responsibilities", null, "responsibility"));
 
-  const importPoints = file.importCount >= 25 ? 15 : file.importCount >= 16 ? 12 : file.importCount >= 10 ? 8 : file.importCount >= 6 ? 4 : 0;
-  score += importPoints;
   signals.push(signal(file.importCount >= 10, "dependency_fan_out_proxy", file.importCount, "Direct import count; alias imports may be under-resolved", null, "dependency"));
 
   const effectiveFunctionCount = structural?.functionCount ?? file.functionCount;
-  const functionPoints = effectiveFunctionCount >= 80 ? 10 : effectiveFunctionCount >= 50 ? 7 : effectiveFunctionCount >= 30 ? 4 : 0;
-  score += functionPoints;
   signals.push(signal(
     effectiveFunctionCount >= 30,
     "function_concentration",
@@ -509,7 +508,6 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
   signals.push(signal(file.duplicateBlockCount >= 8, "duplicate_logic", file.duplicateBlockCount, "Exact substantial multi-line blocks repeated across source files", file.duplicateBlockCount >= 20 ? "high" : file.duplicateBlockCount >= 8 ? "medium" : "low", "duplication"));
 
   const structuralBoundaryPoints = structural?.boundaryCandidateCount >= 2 ? 10 : structural?.boundaryCandidateCount >= 1 ? 6 : 0;
-  score += structuralBoundaryPoints;
   signals.push(signal(
     structuralBoundaryPoints > 0,
     "structural_boundary",
@@ -519,16 +517,10 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
     "structure"
   ));
 
-  const growthPoints = ratio == null ? 0 : ratio >= 2 ? 18 : ratio >= 1.5 ? 14 : ratio >= 1.25 ? 10 : ratio >= 1.1 ? 5 : 0;
-  score += growthPoints;
   signals.push(signal(ratio != null && ratio >= 1.25, "growth_velocity", ratio == null ? null : round((ratio - 1) * 100, 1), "Derived from current and previous session LOC", ratio >= 1.5 ? "high" : "medium", "growth"));
 
-  const hotspotPoints = hotspotRatio >= 0.7 ? 10 : hotspotRatio >= 0.45 ? 7 : hotspotRatio >= 0.25 ? 4 : 0;
-  score += hotspotPoints;
   signals.push(signal(hotspotRatio >= 0.45 && gitCommitCount >= 5, "hotspot_frequency", round(hotspotRatio, 2), "Derived from recent Git commits", null, "history"));
 
-  const cochangePoints = cochangeCount >= 5 ? 10 : cochangeCount >= 3 ? 7 : cochangeCount >= 1 ? 3 : 0;
-  score += cochangePoints;
   signals.push(signal(cochangeCount >= 3, "change_coupling", cochangeCount, "Derived from recent Git co-change history", null, "coupling"));
 
   const uncalibrated = new Set(["mixed_layer_work", "logic_complexity", "duplicate_logic"]);
@@ -537,7 +529,7 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
       .filter(s => s.active && !uncalibrated.has(s.name))
       .map(s => s.independenceGroup)
   ).size;
-  const finalScore = clamp(score);
+  const finalScore = scoreFromSignedSignals(signals,decisionPolicy,"code-structure",localFallbackScore(signals.filter(s => !uncalibrated.has(s.name))));
   let stage = stageFromScore(finalScore, supporting, decisionPolicy, "code-structure");
 
   // Test code has its own verification-architecture concerns. A large test file
@@ -592,34 +584,30 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
   });
   const recommendations = architectureContext.role !== "unclassified"
     ? {
-        doNow: [architectureContext.role === "composition-root"
-          ? "Keep lifecycle wiring and dependency composition at this root; verify independent domain behavior before extracting it."
-          : architectureContext.role === "external-runtime-integration"
-            ? "Keep Desktop-to-Runtime communication behind this integration boundary; preserve Runtime as the execution and recovery authority."
-            : "Keep cloud protocol translation behind this bridge; verify any independently changing product behavior before extracting it."],
-        prepare: ["Use the existing boundary and move only behavior with direct semantic evidence and a separate change reason."],
-        doNotDoYet: ["Do not duplicate task execution, recovery, or orchestration responsibilities across an existing runtime boundary."],
-        nextTrigger: "A specific independently changing responsibility is supported by structural evidence and recurring change history."
+        doNow: ["Review the evidence before making an architecture change."],
+        prepare: ["Gather independent evidence before refactoring."],
+        doNotDoYet: ["Do not expand the design from a single heuristic."],
+        nextTrigger: "Independent confirmation or a verified regression."
       }
     : boundaryAssessment.status === "insufficient-semantic-evidence"
       ? {
-          doNow: ["Treat this as an observation; verify the actual responsibilities before proposing a component boundary."],
-          prepare: ["On the next change to this file, identify the behavior that changes independently and check existing module boundaries."],
-          doNotDoYet: ["Do not split this file or extract a service based on size, vocabulary counts, or control-flow counts alone."],
-          nextTrigger: "A structural boundary candidate, repeated independent changes, or concrete change-related defects provide evidence for intervention."
+          doNow: ["Review the evidence before making an architecture change."],
+          prepare: ["Gather independent evidence before refactoring."],
+          doNotDoYet: ["Do not expand the design from a single heuristic."],
+          nextTrigger: "Independent confirmation or a verified regression."
         }
     : stageRank(stage) >= 4
     ? {
-        doNow: ["Create bounded internal component/module boundaries before adding another unrelated responsibility.", "Preserve behavior with characterization tests around the affected boundary."],
-        prepare: ["Define ownership and stable internal interfaces.", "Measure whether change coupling and blast radius fall after the split."],
-        doNotDoYet: ["Do not extract a microservice solely because this file/module is large.", "Do not perform unrelated cleanup in the same transition."],
-        nextTrigger: "Another independent responsibility, further co-change growth, or continued fan-out growth."
+        doNow: ["Review the evidence before making an architecture change."],
+        prepare: ["Gather independent evidence before refactoring."],
+        doNotDoYet: ["Do not expand the design from a single heuristic."],
+        nextTrigger: "Independent confirmation or a verified regression."
       }
     : {
-        doNow: ["Keep new responsibilities from accumulating in this unit where practical."],
-        prepare: ["Identify likely ownership boundaries.", "Add characterization tests before a future decomposition."],
-        doNotDoYet: ["No service extraction is justified from these signals alone."],
-        nextTrigger: "Sustained growth plus rising coupling/hotspot evidence."
+        doNow: ["Review the evidence before making an architecture change."],
+        prepare: ["Gather independent evidence before refactoring."],
+        doNotDoYet: ["Do not expand the design from a single heuristic."],
+        nextTrigger: "Independent confirmation or a verified regression."
       };
 
   return {
@@ -642,7 +630,7 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
       boundaryCandidateCount: structural.boundaryCandidateCount,
       boundaryCandidates: structural.boundaryCandidates
     } : null,
-    whyItMatters: "This unit is accumulating multiple independent pressure signals; future feature work may become more coupled and harder to verify.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
     ...recommendations,
     agentAction,
     semanticReview,
@@ -664,28 +652,24 @@ function couplingFinding(projectId, current, previous, decisionPolicy = null) {
     signal(graph.maxFanIn >= 8, "max_fan_in", graph.maxFanIn, "Derived local import graph"),
     signal(edgeGrowth != null && edgeGrowth >= 1.25, "dependency_edge_growth", edgeGrowth == null ? null : round((edgeGrowth - 1) * 100, 1), "Derived across sessions")
   ];
-  let score = 0;
-  score += Math.min(35, graph.cycleCount * 10);
-  score += graph.maxFanOut >= 15 ? 25 : graph.maxFanOut >= 8 ? 15 : 0;
-  score += graph.maxFanIn >= 15 ? 20 : graph.maxFanIn >= 8 ? 12 : 0;
-  score += edgeGrowth >= 1.5 ? 20 : edgeGrowth >= 1.25 ? 12 : 0;
   const supporting = s.filter(x => x.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "dependency-coupling");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"dependency-coupling",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "dependency-coupling");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "dependency-coupling", "project"),
     family: "dependency-coupling",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Dependency coupling pressure is rising",
     evidenceQuality: previous ? "derived" : "direct+derived",
     signals: s.filter(x => x.active),
-    whyItMatters: "Increasing dependency breadth or cycles can increase change blast radius and make boundaries harder to evolve.",
-    doNow: stageRank(stage) >= 4 ? ["Break dependency cycles at the smallest stable boundary."] : ["Avoid adding new cross-boundary dependencies without a clear ownership reason."],
-    prepare: ["Identify dependency direction and ownership rules.", "Stabilize interfaces before considering deployment separation."],
-    doNotDoYet: ["Do not introduce microservices, a service mesh, or a new orchestration layer from coupling evidence alone."],
-    nextTrigger: "Persistent cycle growth, materially larger fan-in/fan-out, or repeated co-change across intended boundaries.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.5 + supporting * 0.1, 0, 0.9),
     standards: ["ISO/IEC 25010:2023 maintainability/modularity baseline", "ISO/IEC/IEEE 42010 architecture-description discipline"],
     heuristicDisclosure: "Graph thresholds are Vibe Monitor calibration heuristics."
@@ -703,25 +687,24 @@ function portabilityFinding(projectId, current, previous, decisionPolicy = null)
     signal(growth != null && growth >= 1.5, "platform_assumption_growth", round((growth - 1) * 100, 1), "Derived across sessions")
   ];
   let score = count >= 20 ? 45 : count >= 10 ? 30 : count >= 4 ? 18 : 0;
-  score += affectedFiles >= 8 ? 25 : affectedFiles >= 3 ? 15 : 0;
-  score += growth >= 2 ? 25 : growth >= 1.5 ? 15 : 0;
   const supporting = s.filter(x => x.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "platform-portability");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"platform-portability",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "platform-portability");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "platform-portability", "project"),
     family: "platform-portability",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Platform-specific assumptions are spreading",
     evidenceQuality: previous ? "direct+derived" : "direct",
     signals: s.filter(x => x.active),
-    whyItMatters: "Platform branches that spread through product logic make future OS/CPU/GPU support more expensive.",
-    doNow: ["Keep platform checks close to infrastructure boundaries rather than business logic."],
-    prepare: ["Define a capability matrix before a second execution target becomes mandatory.", "Consider a provider/capability interface if target diversity becomes a real requirement."],
-    doNotDoYet: ["Do not build a generalized hardware scheduler unless multiple workload/target classes actually exist."],
-    nextTrigger: "A second supported OS/architecture/accelerator becomes a declared requirement or platform branches continue spreading.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.45 + supporting * 0.12, 0, 0.85),
     standards: ["ISO/IEC 25010:2023 flexibility/adaptability baseline"],
     heuristicDisclosure: "Platform token counts are a heuristic proxy; product intent is required for a transition decision."
@@ -740,26 +723,24 @@ function securityFinding(projectId, current, previous, decisionPolicy = null) {
     signal(endpoints > prevEndpoints && previous != null, "endpoint_surface_growth", endpoints - prevEndpoints, "Derived across sessions")
   ];
   let score = creds >= 12 ? 35 : creds >= 6 ? 24 : creds >= 3 ? 14 : 0;
-  score += endpoints >= 15 ? 30 : endpoints >= 8 ? 20 : endpoints >= 5 ? 12 : 0;
-  score += creds > prevCreds ? 10 : 0;
-  score += endpoints > prevEndpoints ? 10 : 0;
   const supporting = s.filter(x => x.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "security-surface");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"security-surface",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "security-surface");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "security-surface", "project"),
     family: "security-surface",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Security surface is expanding",
     evidenceQuality: previous ? "direct+derived" : "direct",
     signals: s.filter(x => x.active),
-    whyItMatters: "More credentials and externally reachable endpoints increase the importance of explicit trust, authorization, and secret ownership boundaries.",
-    doNow: ["Keep credentials scoped and out of source control.", "Ensure new externally reachable endpoints have explicit authentication/authorization decisions."],
-    prepare: ["Document trust boundaries and credential ownership before the surface expands further."],
-    doNotDoYet: ["Do not add heavyweight security infrastructure solely because endpoint count increased."],
-    nextTrigger: "New trust boundaries, broader privileges, shared credentials, or materially larger public surface.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.4 + supporting * 0.12, 0, 0.85),
     standards: ["NIST SP 800-218 SSDF", "OWASP SAMM"],
     heuristicDisclosure: "Pattern counts do not prove a vulnerability; this finding tracks architectural security surface, not exploitability."
@@ -793,32 +774,25 @@ function stateDataFinding(projectId, current, previous, decisionPolicy = null) {
     signal(schema >= 3 && persistenceFiles >= 2, "schema_growth", schema, "Schema/migration-related patterns")
   ];
 
-  let score = 0;
-  score += shared >= 16 ? 24 : shared >= 8 ? 16 : shared >= 4 ? 10 : 0;
-  score += sharedFiles >= 8 ? 20 : sharedFiles >= 4 ? 14 : sharedFiles >= 3 ? 8 : 0;
-  score += mixedFiles >= 5 ? 20 : mixedFiles >= 3 ? 14 : mixedFiles >= 2 ? 8 : 0;
-  score += persistence >= 15 ? 16 : persistence >= 8 ? 12 : persistence >= 5 ? 8 : 0;
-  score += sharedGrowth >= 2 ? 16 : sharedGrowth >= 1.5 ? 10 : 0;
-  score += persistenceGrowth >= 2 ? 14 : persistenceGrowth >= 1.5 ? 9 : 0;
-  score += schema >= 8 ? 10 : schema >= 3 ? 6 : 0;
 
   const supporting = s.filter(item => item.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "state-data");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"state-data",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "state-data");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "state-data", "project"),
     family: "state-data",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "State and data ownership pressure is rising",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(item => item.active),
-    whyItMatters: "Shared state and persistence spread can make synchronization and ownership harder to reason about.",
-    doNow: ["Clarify which component owns shared state and which data must be durable before adding another writer."],
-    prepare: ["Separate transient UI state from durable product data where the boundary is already visible."],
-    doNotDoYet: ["Do not replace the state stack or move everything into a database from count evidence alone."],
-    nextTrigger: "More independent writers, repeated synchronization bugs, migration growth, or the same state being coordinated across background work.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.42 + supporting * 0.09 + (previous ? 0.08 : 0), 0, 0.88),
     standards: ["ISO/IEC 25010:2023 maintainability/modularity baseline", "ISO/IEC/IEEE 42010:2022 architecture viewpoints"],
     heuristicDisclosure: "State/persistence pattern counts are proxies; they do not prove incorrect state architecture."
@@ -847,31 +821,25 @@ function asyncConcurrencyFinding(projectId, current, previous, decisionPolicy = 
     signal(asyncGrowth != null && asyncGrowth >= 1.5, "async_growth", round((asyncGrowth - 1) * 100, 1), "Derived async-path growth across sessions")
   ];
 
-  let score = 0;
-  score += asyncCount >= 100 && asyncFiles >= 12 ? 16 : asyncCount >= 30 && asyncFiles >= 6 ? 10 : 0;
-  score += background >= 12 ? 20 : background >= 6 ? 16 : background >= 4 ? 12 : 0;
-  score += processes >= 6 ? 18 : processes >= 3 ? 14 : processes >= 2 ? 9 : 0;
-  score += concurrentSurface >= 5 && shared >= 3 ? 22 : 0;
-  score += concurrentSurface >= 6 && coordination === 0 ? 20 : 0;
-  score += asyncGrowth >= 2 ? 16 : asyncGrowth >= 1.5 ? 10 : 0;
 
   const supporting = s.filter(item => item.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "async-concurrency");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"async-concurrency",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "async-concurrency");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "async-concurrency", "project"),
     family: "async-concurrency",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Async/concurrent execution pressure is rising",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(item => item.active),
-    whyItMatters: "More parallel and background execution increases the chance of duplicate work, conflicting ownership, and tasks that cannot be stopped cleanly.",
-    doNow: ["Make task ownership, completion, cancellation, and duplicate-work behavior explicit for new background work."],
-    prepare: ["Introduce coordination only around the resources that actually have competing writers."],
-    doNotDoYet: ["Do not introduce a distributed queue or orchestration platform just because async code exists."],
-    nextTrigger: "Multiple tasks touching shared state, duplicate execution, resource contention, or jobs that outlive the request/session that created them.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.4 + supporting * 0.1 + (previous ? 0.08 : 0), 0, 0.9),
     standards: ["ISO/IEC 25010:2023 reliability/maintainability baseline", "CNCF cloud-native architecture guidance where distributed execution is justified"],
     heuristicDisclosure: "Static async/process patterns cannot prove a race condition; they indicate coordination pressure."
@@ -900,31 +868,25 @@ function reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy
     signal(workGrowth != null && workGrowth >= 1.5, "recovery_pressure_growth", round((workGrowth - 1) * 100, 1), "Derived growth of background/process work")
   ];
 
-  let score = 0;
-  score += workSurface >= 12 ? 18 : workSurface >= 5 ? 12 : 0;
-  score += retries >= 8 ? 14 : retries >= 3 ? 9 : 0;
-  score += (retries >= 2 || background >= 5) && idempotency === 0 ? 22 : 0;
-  score += background >= 5 && recovery === 0 ? 22 : 0;
-  score += processes >= 2 && timeouts === 0 ? 16 : 0;
-  score += workGrowth >= 2 ? 16 : workGrowth >= 1.5 ? 10 : 0;
 
   const supporting = s.filter(item => item.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "reliability-recovery");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"reliability-recovery",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "reliability-recovery");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "reliability-recovery", "project"),
     family: "reliability-recovery",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Recovery pressure is rising",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(item => item.active),
-    whyItMatters: "Background and retryable work needs explicit behavior for interruption, duplicate execution, timeout, and restart.",
-    doNow: ["For the next long-running or retryable task, define timeout/cancellation, duplicate handling, and how work resumes after interruption."],
-    prepare: ["Persist only the minimum task state needed to recover when real interruption risk appears."],
-    doNotDoYet: ["Do not adopt a full workflow engine or multi-region failover solely from static code signals."],
-    nextTrigger: "Lost work, duplicate side effects, orphan processes, frequent retry chains, or work that must survive application restarts.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.42 + supporting * 0.1 + (previous ? 0.08 : 0), 0, 0.9),
     standards: ["ISO/IEC 25010:2023 reliability/recoverability baseline", "ISO/IEC/IEEE 12207:2026 lifecycle/operation baseline"],
     heuristicDisclosure: "Missing source-code patterns do not prove missing runtime safeguards; this finding flags recovery questions to verify."
@@ -956,31 +918,25 @@ function testingVerificationFinding(projectId, current, previous, decisionPolicy
     signal(testFiles >= 3 && assertions < testFiles * 2, "low_assertion_depth", assertions, "Assertion/checkpoint patterns in repository-visible tests")
   ];
 
-  let score = 0;
-  score += productFiles >= 120 || productLoc >= 50000 ? 18 : productFiles >= 60 || productLoc >= 25000 ? 12 : 0;
-  score += productFiles >= 40 && testFiles <= 2 ? 22 : 0;
-  score += testFiles > 0 && testRatio >= 30 ? 18 : testFiles > 0 && testRatio >= 20 ? 12 : 0;
-  score += criticalSurface >= 15 && testFiles < 5 ? 20 : criticalSurface >= 8 && testFiles < 5 ? 14 : 0;
-  score += sourceGrowth >= 1.5 && testFiles <= previousTestFiles ? 16 : sourceGrowth >= 1.25 && testFiles <= previousTestFiles ? 10 : 0;
-  score += testFiles >= 3 && assertions < testFiles * 2 ? 8 : 0;
 
   const supporting = s.filter(item => item.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "testing-verification");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"testing-verification",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "testing-verification");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "testing-verification", "project"),
     family: "testing-verification",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Verification pressure is rising",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(item => item.active),
-    whyItMatters: "As change surface grows, manual checks and agent self-reports are less likely to catch regressions consistently.",
-    doNow: ["Add focused automated checks around the most frequently changed or failure-sensitive path before broad test expansion."],
-    prepare: ["Track which critical paths still require manual verification."],
-    doNotDoYet: ["Do not chase 100% coverage or create tests only to improve a coverage number."],
-    nextTrigger: "Repeated regressions, increasing test runtime/flakiness, or important flows that still cannot be verified automatically.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.36 + supporting * 0.09 + (previous ? 0.06 : 0), 0, 0.82),
     standards: ["ISO/IEC 25010:2023 reliability/functional-suitability baseline", "ISO/IEC/IEEE 12207:2026 verification/validation lifecycle baseline"],
     heuristicDisclosure: "Repository-visible test counts are incomplete evidence; external/manual verification may exist."
@@ -1011,30 +967,25 @@ function observabilityFinding(projectId, current, previous, decisionPolicy = nul
     signal(operationalGrowth != null && operationalGrowth >= 1.5 && visibility <= prevVisibility, "observability_growth_gap", round((operationalGrowth - 1) * 100, 1), "Operational growth without matching visibility growth")
   ];
 
-  let score = 0;
-  score += operational >= 20 ? 18 : operational >= 8 ? 12 : 0;
-  score += background >= 8 ? 14 : background >= 4 ? 9 : 0;
-  score += operational >= 8 && visibility < 3 ? 24 : 0;
-  score += endpoints >= 5 && correlation === 0 ? 16 : 0;
-  score += operationalGrowth >= 2 && visibility <= prevVisibility ? 18 : operationalGrowth >= 1.5 && visibility <= prevVisibility ? 12 : 0;
 
   const supporting = s.filter(item => item.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "observability");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"observability",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "observability");
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "observability", "project"),
     family: "observability",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Diagnosability pressure is rising",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(item => item.active),
-    whyItMatters: "More API/background execution without matching visibility makes intermittent failures harder to explain and fix.",
-    doNow: ["Make the next critical API/background path emit structured logs and a request/task identifier that follows it end to end."],
-    prepare: ["Add metrics/traces only around flows where logs are no longer enough."],
-    doNotDoYet: ["Do not deploy a large observability stack before the project has enough runtime complexity to justify it."],
-    nextTrigger: "Frequent intermittent failures, multiple background flows, or incidents where the team cannot tell which step failed.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.4 + supporting * 0.1 + (previous ? 0.08 : 0), 0, 0.88),
     standards: ["OpenTelemetry specification vocabulary", "CNCF cloud-native observability guidance", "ISO/IEC 25010:2023 reliability/maintainability baseline"],
     heuristicDisclosure: "Static logging/telemetry patterns do not prove runtime observability quality; they identify a likely diagnosability gap."
@@ -1065,17 +1016,10 @@ function distributionScalingFinding(projectId, current, previous, intent, decisi
     signal(persistence >= 8, "persistence_surface", persistence, "Persistence/storage evidence")
   ];
 
-  let score = 0;
-  score += hosted ? 14 : 0;
-  score += multiUser ? 10 : 0;
-  score += background >= 8 || processes >= 6 ? 18 : background >= 4 || processes >= 3 ? 12 : 0;
-  score += deployTargets >= 3 ? 16 : deployTargets >= 2 ? 10 : 0;
-  score += workspaces >= 3 ? 12 : workspaces >= 2 ? 8 : 0;
-  score += endpoints >= 15 ? 14 : endpoints >= 8 ? 9 : 0;
-  score += persistence >= 20 ? 12 : persistence >= 8 ? 7 : 0;
 
   const supporting = s.filter(x => x.active).length;
-  const observedStage = stageFromScore(clamp(score), supporting, decisionPolicy, "distribution-scaling");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"distribution-scaling",localFallbackScore(s));
+  const observedStage = stageFromScore(cloudScore, supporting, decisionPolicy, "distribution-scaling");
   const highImpactContextKnown =
     hosted ||
     multiUser ||
@@ -1092,7 +1036,7 @@ function distributionScalingFinding(projectId, current, previous, intent, decisi
     family: "distribution-scaling",
     stage,
     observedStage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Runtime/deployment separation pressure is rising",
     evidenceQuality: "direct+intent+heuristic",
@@ -1108,23 +1052,11 @@ function distributionScalingFinding(projectId, current, previous, intent, decisi
     decisionQuestions: !highImpactContextKnown && !existingRuntimeBoundary
       ? ["这个产品是本地、托管还是混合交付？", "哪个组件负责任务执行和恢复？"]
       : [],
-    whyItMatters: existingRuntimeBoundary
-      ? "Runtime/process activity is present and an existing Runtime integration path was detected; this does not imply Desktop should own task execution or recovery."
-      : "Different runtime, scaling, and recovery needs can justify a process or service boundary, but only when explicit product intent and operational evidence agree.",
-    doNow: [existingRuntimeBoundary
-      ? "Keep Desktop as the integration/orchestration surface and leave execution and recovery with the existing Runtime."
-      : !highImpactContextKnown
-        ? "Confirm deployment and workload-ownership intent before considering an architecture change."
-        : "Keep independently-running work behind a small explicit boundary and make ownership/failure behavior clear."],
-    prepare: [existingRuntimeBoundary
-      ? "Check whether a concrete workload needs independent scaling or release before changing the current Runtime integration."
-      : "Collect real scale, failure-isolation, and independent-release needs before extracting a service."],
-    doNotDoYet: [existingRuntimeBoundary
-      ? "Do not duplicate task execution, recovery, or orchestration in Desktop; do not add a service layer without an independent operational need."
-      : "Do not introduce microservices, Kubernetes, or a service mesh from repository size alone."],
-    nextTrigger: existingRuntimeBoundary
-      ? "A workload has a demonstrated need to scale, deploy, or fail independently from the current Runtime."
-      : "A workload must scale, deploy, or recover independently from the main application.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.38 + supporting * 0.08 + (hosted ? 0.08 : 0), 0, 0.86),
     standards: ["ISO/IEC/IEEE 42010:2022 architecture viewpoints", "CNCF cloud-native architecture guidance"],
     heuristicDisclosure: "Static repository evidence cannot prove independent scaling/failure-domain needs; Product Intent is required for higher-confidence transitions."
@@ -1152,16 +1084,10 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
     signal(hosted, "hosted_delivery", intent?.effective?.delivery || "unknown", "Explicit product-intent context only; inferred values remain advisory")
   ];
 
-  let score = 0;
-  score += endpoints >= 20 ? 20 : endpoints >= 8 ? 13 : 0;
-  score += endpointFiles >= 8 ? 16 : endpointFiles >= 4 ? 10 : 0;
-  score += contractGap ? 22 : 0;
-  score += growth >= 1.5 ? 16 : growth >= 1.25 ? 10 : 0;
-  score += compatibility >= 5 || versions >= 5 ? 14 : compatibility >= 3 || versions >= 3 ? 9 : 0;
-  score += hosted ? 8 : 0;
 
   const supporting = s.filter(x => x.active).length;
-  const observedStage = stageFromScore(clamp(score), supporting, decisionPolicy, "api-contract");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"api-contract",localFallbackScore(s));
+  const observedStage = stageFromScore(cloudScore, supporting, decisionPolicy, "api-contract");
   const externalIntentKnown =
     intent?.explicit?.audience === "public" ||
     intent?.explicit?.tenancy === "multi" ||
@@ -1177,7 +1103,7 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
     family: "api-contract",
     stage,
     observedStage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "API contract pressure is rising",
     evidenceQuality: previous ? "direct+derived+intent+heuristic" : "direct+intent+heuristic",
@@ -1188,11 +1114,11 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
     decisionQuestions: externalIntentKnown
       ? []
       : ["是否有外部客户或独立服务依赖这些请求/响应格式？", "哪些接口确实需要兼容旧格式？"],
-    whyItMatters: "As endpoint count and consumers grow, implicit request/response shapes make change compatibility harder to control.",
-    doNow: ["Stabilize schemas for the most depended-on endpoints and verify them automatically."],
-    prepare: ["Introduce version/compatibility policy only when real consumers make breaking changes costly."],
-    doNotDoYet: ["Do not add an API gateway or version every internal function just because endpoint count increased."],
-    nextTrigger: "Multiple consumers, repeated breaking changes, compatibility branches, or external integrations depending on the API.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.4 + supporting * 0.09 + (previous ? 0.06 : 0), 0, 0.88),
     standards: ["OpenAPI / JSON Schema where applicable", "ISO/IEC/IEEE 42010:2022 interface viewpoints"],
     heuristicDisclosure: "Contract-pattern counts are proxies; contracts may exist outside the scanned source tree."
@@ -1218,32 +1144,26 @@ function providerIntegrationFinding(projectId, current, previous, decisionPolicy
     signal(providerGrowth != null && providerGrowth >= 1.5, "provider_growth", round((providerGrowth - 1) * 100, 1), "Provider-family growth across sessions")
   ];
 
-  let score = 0;
-  score += providers.length >= 4 ? 18 : providers.length >= 2 ? 11 : 0;
-  score += providerFiles.length >= 8 ? 18 : providerFiles.length >= 4 ? 12 : 0;
-  score += coreLeakFiles >= 6 ? 22 : coreLeakFiles >= 3 ? 15 : 0;
-  score += branches >= 6 ? 16 : branches >= 3 ? 10 : 0;
-  score += providerAuthRetry >= 5 ? 12 : providerAuthRetry >= 3 ? 8 : 0;
-  score += providerGrowth >= 2 ? 14 : providerGrowth >= 1.5 ? 9 : 0;
 
   const supporting = s.filter(x => x.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "provider-integration");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"provider-integration",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "provider-integration");
   if (stage === "S1") return null;
 
   return {
     id: findingId(projectId, "provider-integration", "project"),
     family: "provider-integration",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Provider-specific complexity is spreading",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(x => x.active),
-    whyItMatters: "Provider SDK/auth/retry details spread through core logic make replacement, fallback, and consistent policy harder.",
-    doNow: ["Keep new provider-specific behavior behind a small adapter/capability boundary."],
-    prepare: ["Share retry/auth/error policy only when the same capability truly spans multiple providers."],
-    doNotDoYet: ["Do not build a general plugin platform or routing engine for a small number of integrations."],
-    nextTrigger: "A second provider for the same capability, repeated provider branches, or duplicated auth/retry behavior.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.4 + supporting * 0.09 + (previous ? 0.06 : 0), 0, 0.87),
     standards: ["ISO/IEC 25010:2023 modularity/flexibility baseline", "ISO/IEC/IEEE 42010:2022 interface viewpoints"],
     heuristicDisclosure: "Provider detection is package/import based and may miss custom integrations."
@@ -1268,30 +1188,26 @@ function aiDriftFinding(projectId, current, previous, decisionPolicy = null) {
     signal(depGrowth != null && depGrowth >= 1.25, "dependency_stack_growth", round((depGrowth - 1) * 100, 1), "Production-dependency growth across sessions")
   ];
 
-  let score = 0;
-  score += fragmented >= 3 ? 24 : fragmented >= 2 ? 18 : fragmented >= 1 ? 10 : 0;
-  score += duplicates >= 20 && duplicateFiles >= 8 ? 24 : duplicates >= 8 && duplicateFiles >= 4 ? 14 : 0;
-  score += duplicateGrowth >= 2 ? 20 : duplicateGrowth >= 1.5 ? 12 : 0;
-  score += depGrowth >= 1.5 ? 18 : depGrowth >= 1.25 ? 10 : 0;
 
   const supporting = s.filter(x => x.active).length;
-  const stage = stageFromScore(clamp(score), supporting, decisionPolicy, "ai-drift");
+  const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"ai-drift",localFallbackScore(s));
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "ai-drift");
   if (stage === "S1") return null;
 
   return {
     id: findingId(projectId, "ai-drift", "project"),
     family: "ai-drift",
     stage,
-    score: clamp(score),
+    score: cloudScore,
     target: "project",
     title: "Implementation conventions are drifting",
     evidenceQuality: previous ? "direct+derived+heuristic" : "direct+heuristic",
     signals: s.filter(x => x.active),
-    whyItMatters: "Multiple competing stacks and repeated implementations make later sessions less certain about which pattern to extend.",
-    doNow: ["Prefer the dominant existing pattern for new work and consolidate only the smallest repeated implementation that is actively changing."],
-    prepare: ["Write a short convention only after a pattern is clearly dominant and worth preserving."],
-    doNotDoYet: ["Do not rewrite the project just to make every historical implementation look identical."],
-    nextTrigger: "Another competing implementation appears or duplicate/stack fragmentation continues growing.",
+    whyItMatters: "Changes in observed evidence can warrant a focused review.",
+    doNow: ["Review the evidence before making an architecture change."],
+    prepare: ["Gather independent evidence before refactoring."],
+    doNotDoYet: ["Do not expand the design from a single heuristic."],
+    nextTrigger: "Independent confirmation or a verified regression.",
     confidence: clamp(0.34 + supporting * 0.1 + (previous ? 0.08 : 0), 0, 0.82),
     standards: ["ISO/IEC 25010:2023 maintainability/consistency baseline"],
     heuristicDisclosure: "Vibe can detect implementation drift but cannot prove that AI caused it."
@@ -1337,6 +1253,12 @@ function buildFindings(projectId, current, previous, intent, root, decisionPolic
       finding.baseScore = finding.score;
       finding.score = Math.max(0, Math.min(100, Math.round(finding.score * multiplier * 100) / 100));
     }
+  }
+  for (const finding of findings) {
+    const guidance = signedAdviceForFamily(decisionPolicy,finding.family);
+    if (!guidance) continue;
+    for (const field of ["doNow","prepare","doNotDoYet","nextTrigger","whyItMatters"])
+      if (guidance[field] !== undefined) finding[field] = guidance[field];
   }
   findings.sort((a, b) => stageRank(b.stage) - stageRank(a.stage) || b.score - a.score);
   return findings;
