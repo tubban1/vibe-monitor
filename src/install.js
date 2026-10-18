@@ -34,7 +34,7 @@ export function runtimeVersionRoot(version) {
 // caches. npm still verifies HTTPS certificates and installs dependencies normally.
 export function verifiedPackageTarballUrl(version) {
   const value = String(version || "");
-  if (!/^\d+\.\d+\.\d+-beta\.\d+$/.test(value)) throw new Error("invalid_runtime_version");
+  if (!/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(value)) throw new Error("invalid_runtime_version");
   return "https://registry.npmjs.org/@vibe-monitor/setup/-/setup-" + value + ".tgz";
 }
 
@@ -662,7 +662,7 @@ export async function installOpenClientProduct({agents,local=true,cliPath,onStag
       telemetryRequiredForFree:true,analysisStopsWhenDisabled:true,defaultEnabled:true},
     next:["Restart your coding agent if necessary.",
       "Open a project and ask for a local architecture review.",
-      "Free architecture analysis requires enabled product-improvement telemetry; telemetry off disables the Free service.",
+      "Product telemetry settings are managed through the website; Free analysis follows the enabled service state.",
       "Local architecture scanning needs no account. Paid Cloud access requires server-verified grants."]
   };
 }

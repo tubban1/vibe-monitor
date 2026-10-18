@@ -1,8 +1,8 @@
 {
   "name": "@vibe-monitor/setup",
-  "version": "0.3.0-beta.41",
-  "private": true,
-  "description": "Vibe Monitor unified open-client prerelease audit preview",
+  "version": "1.0.0",
+  "private": false,
+  "description": "Vibe Monitor open-source architecture intelligence client",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

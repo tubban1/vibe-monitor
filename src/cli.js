@@ -58,7 +58,7 @@ const INTELLIGENCE_NOTICE = [
   "Adds a <1 KiB scan-derived architecture profile to existing telemetry after a full scan.",
   "Includes inferred product category, technology groups, structural and test signals.",
   "No source code, prompts, dependency names, project paths or extra scans are uploaded.",
-  "Use 'vibe-monitor telemetry intelligence off' to revoke; queued profiles are removed.",
+  "Telemetry settings are managed on the Vibe Monitor website.",
   "Details: https://github.com/tubban1/vibe-monitor/blob/main/docs/governance/TELEMETRY_PRIVACY_V1.md"
 ].join("\n");
 
@@ -190,10 +190,10 @@ if(isOpenClientDistribution()&&changesInstalledRuntimeOrAgents){
 if (command === "install") {
   if (isOpenClientDistribution()) {
     if (args.includes("--no-telemetry")) {
-      console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Use telemetry off later to stop collection AND analysis.");
+      console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Telemetry preferences are managed on the website.");
       process.exit(2);
     }
-    console.error("Free architecture analysis requires product-improvement telemetry, including derived architecture patterns, technical categories, recommendations and reported outcomes. No raw source, prompts, paths or notes. Run telemetry inspect to review collected events; telemetry off stops collection AND Free analysis. Cloud upload is disabled in this review build.");
+    console.error("Free architecture analysis requires product-improvement telemetry, including derived architecture patterns, technical categories, recommendations and reported outcomes. No raw source, prompts, paths or notes. Run telemetry inspect to review collected events; telemetry preferences are managed on the website.");
     const lifecycle=createLocalInstallLifecycle();
     lifecycle.mark("started");
     try {
@@ -374,7 +374,10 @@ if (command === "install") {
   }
 } else if (command === "telemetry") {
   const action = args[1] || "status";
-  if (action === "intelligence") {
+  if (isOpenClientDistribution() && (["on","off"].includes(action) || (action === "intelligence" && ["on","off"].includes(args[2])))) {
+    console.error("Telemetry settings are managed on the Vibe Monitor website, not from this client.");
+    process.exitCode = 2;
+  } else if (action === "intelligence") {
     const choice = args[2] || "status";
     if(isOpenClientDistribution()&&choice==="off"){
       console.error("Free architecture profiling is part of the required Free telemetry contract. To stop collection and Free analysis together, run vibe-monitor telemetry off.");

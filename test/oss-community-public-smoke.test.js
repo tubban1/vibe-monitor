@@ -40,7 +40,21 @@ test("unified open client performs offline scan, install and uninstall with no u
  const blockedBeforeInstall=run("scan",project,"--json");
  assert.equal(blockedBeforeInstall.status,2,"Free analysis must not run before required telemetry is active");
  assert.equal(JSON.parse(blockedBeforeInstall.stdout).monitoring.reason,"telemetry_required");
- assert.equal(run("telemetry","on","--json").status,0);
+ assert.equal(run("telemetry","on","--json").status,2);
+ assert.equal(run("telemetry","off","--json").status,2);
+ assert.equal(run("telemetry","intelligence","off","--json").status,2);
+ const policyFile=path.join(app,"free-telemetry","config.json");
+ fs.mkdirSync(path.dirname(policyFile),{recursive:true});
+ fs.writeFileSync(policyFile,JSON.stringify({schemaVersion:1,enabled:true,
+   dataIntelligenceDecision:"included",consentVersion:"free-v1"}));
+ const initialized=spawnSync(process.execPath,["--input-type=module","-e",
+   'import {initializeFreeTelemetry} from '+JSON.stringify(pathToFileURL(path.join(root,"src","telemetry.js")).href)+'; initializeFreeTelemetry()'],
+   {cwd:temp,env,encoding:"utf8",timeout:30000});
+ assert.equal(initialized.status,0,initialized.stderr?.slice(0,500));
+ const beforePolicy=fs.readFileSync(policyFile,"utf8");
+ assert.equal(run("telemetry","off","--json").status,2);
+ assert.equal(fs.readFileSync(policyFile,"utf8"),beforePolicy);
+
  const scan=run("scan",project,"--json");
  assert.equal(scan.status,0,scan.stderr?.slice(0,600));
  const scanned=JSON.parse(scan.stdout);
@@ -116,28 +130,23 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(configured.telemetry.telemetryRequiredForFree,true);
  assert.equal(configured.telemetry.analysisStopsWhenDisabled,true);
  assert.equal(configured.telemetry.requiredDuringPrivateBeta,false);
- const optIn=run("telemetry","on");
- assert.equal(optIn.status,0,"Free telemetry activation is separate from legacy Beta upload");
- assert.equal(JSON.parse(optIn.stdout).enabled,true);
- const intelligence=run("telemetry","intelligence","on");
- assert.equal(intelligence.status,0,"Independent Free architecture profiling can be enabled locally");
- const disabledTelemetry=run("telemetry","off","--json");
- assert.equal(disabledTelemetry.status,0);
- assert.equal(JSON.parse(disabledTelemetry.stdout).serviceEnabled,false);
+ // CLI telemetry controls are read-only; simulate website control using fixtures.
+ for(const attempted of [["telemetry","on"],["telemetry","off"],
+   ["telemetry","intelligence","on"],["telemetry","intelligence","off"]])
+   assert.equal(run(...attempted).status,2);
+ const originalContent=fs.readFileSync(policyFile,"utf8");
+ fs.writeFileSync(policyFile,JSON.stringify({schemaVersion:1,enabled:false,
+   consentVersion:"free-v1",dataIntelligenceDecision:"included"}));
  const blockedScan=run("scan",project,"--json");
- assert.equal(blockedScan.status,2,"Free service cannot analyze after telemetry off");
- const denial=JSON.parse(blockedScan.stdout);
- assert.equal(denial.monitoring.reason,"telemetry_required");
- assert.equal(denial.status.assessmentAvailable,false);
+ assert.equal(blockedScan.status,2);
+ assert.equal(JSON.parse(blockedScan.stdout).monitoring.reason,"telemetry_required");
  for(const blocked of ["projects","activity"]){
    const result=run(blocked,"--json");assert.equal(result.status,2);
    assert.equal(JSON.parse(result.stdout).serviceEnabled,false);
  }
- assert.equal(run("telemetry","intelligence","off","--json").status,2,
-   "Core Free architecture profiling cannot be disabled separately while analysis remains available");
- const resumed=run("telemetry","on","--json");
- assert.equal(resumed.status,0);
- assert.equal(JSON.parse(resumed.stdout).serviceEnabled,true);
+ assert.equal(run("telemetry","on").status,2);
+ assert.equal(JSON.parse(fs.readFileSync(policyFile,"utf8")).enabled,false);
+ fs.writeFileSync(policyFile,originalContent);
  assert.equal(run("scan",project,"--json").status,0);
  assert.equal(run("cloud","sync","--json").status,2,"Beta Cloud telemetry sync must be blocked");
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
@@ -200,8 +209,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  const previousConsent=JSON.stringify({enabled:true,consentVersion:"private-beta-v4"});
  fs.writeFileSync(legacyTelemetry,previousConsent);
  const optOut=run("telemetry","off","--json");
- assert.equal(optOut.status,0,optOut.stderr?.slice(0,400));
- assert.equal(JSON.parse(optOut.stdout).enabled,false);
+ assert.equal(optOut.status,2,optOut.stderr?.slice(0,400));
  assert.equal(fs.readFileSync(legacyTelemetry,"utf8"),previousConsent,
   "Open-client must not mutate legacy Beta consent");
  const status=run("telemetry","status","--json");
