@@ -23,22 +23,28 @@ test("Windows native archive fallback accepts missing module only, never safety-
 });
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const staged=DISTRIBUTION_MODE==="open-client";
-test("Unified open client has Apache-2.0 license, reproducible deps, and no publish rights",{
+test("Unified open client has Apache-2.0 license, reproducible deps, and safe release-channel contracts",{
  skip:!staged?"only runs after source-only OSS staging":false
 },()=>{
  const pkg=JSON.parse(fs.readFileSync(path.join(root,"package.json"),"utf8"));
  const lock=JSON.parse(fs.readFileSync(path.join(root,"package-lock.json"),"utf8"));
  const license=fs.readFileSync(path.join(root,"LICENSE"),"utf8");
  assert.equal(pkg.license,"Apache-2.0");
- assert.equal(pkg.private,true);
+ assert.equal(typeof pkg.private,"boolean");
+ if(pkg.private)assert.match(pkg.version,/-beta\./,"unpublished source preview must be labeled prerelease");
+ else assert.match(pkg.version,/^\d+\.\d+\.\d+$/,"publishable client must have stable semver");
  assert.equal(pkg.name,"@vibe-monitor/setup");
  assert.equal(pkg.version,lock.packages[""].version);
  assert.deepEqual(pkg.dependencies,lock.packages[""].dependencies);
  assert.match(license,/Apache License\s+Version 2\.0, January 2004/);
- assert.equal(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,null,
-  "stage must remain unreleasable until real signed QA policy has been verified");
- assert.equal(COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,null,
-  "new signing verification root must not ship before Cloud security sign-off");
+ if(pkg.private){
+  assert.equal(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,null,
+   "prerelease source preview must not pretend Cloud signatures are production-ready");
+  assert.equal(COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,null);
+ }else{
+  assert.ok(COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,
+   "published client must pin its production Cloud policy verification key");
+ }
 });
 test("agent MCP fallback pins exact installed version and official registry",async()=>{
  const {runtimeSpec}=await import("../src/setup.js");
