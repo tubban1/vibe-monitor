@@ -12,7 +12,7 @@ For the upcoming stable 1.0.0 client, telemetry is enabled by default at install
 ## Single client, separate policy and telemetry interfaces
 
 - `GET /free/policy`: live Cloud-to-client declarative architecture policy, signed with Ed25519 and verified against a pinned client public key. `community` and `free` are internal compatibility identifiers, **not** distinct client products.
-- `POST /free/telemetry`: live client-to-Cloud product telemetry, rate-limited by Cloudflare, validated again in Neon and persisted in the unified `public.telemetry_events` table. This is separate from the older private Beta `/events` transport.
+- `POST /free/telemetry`: live client-to-Cloud product telemetry, rate-limited by Cloudflare, validated again in Neon and previously persisted in the now-obsolete `public.telemetry_events` table. The replacement under QA will store sanitized events in the existing `public.events` table while retaining independent Beta `/events` authentication. No replacement package has been published.
 
 Both production interfaces passed live checks on 2026-10-18, including one synthetic database write subsequently removed. Live endpoint availability does not itself mean the npm 1.0.0 package has been published.
 
