@@ -1,10 +1,10 @@
 # Vibe Monitor
 
 > [!WARNING]
-> **1.0.2 release candidate.** The published stable remains 1.0.1 until Trusted Publishing completes. Beta.41 migrations use the verified direct-to-stable bridge.
+> **Current stable: Vibe Monitor 1.0.2.** Official npm OIDC Trusted Publishing completed on 2026-10-19. Beta.41 migration follows the direct stable bridge.
 
 > [!NOTE]
-> **1.0.2 candidate (2026-10-19).** Local lifecycle diagnostics and consent changes are being verified. The older 1.0.1 npm artifact cannot be overwritten.
+> **Official signed stable update is live.** The immutable npm 1.0.2 package is released, with an initial 10% signed OTA rollout.
 
 **AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 
@@ -39,7 +39,7 @@ Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
 ## Installation
 
-The reviewed candidate package identifier is @vibe-monitor/setup@1.0.2 (NOT YET PUBLISHED). Until it is released with provenance, npm latest remains the immutable 1.0.1 package. This candidate must not be installed from an unofficial registry.
+The stable package is ` @vibe-monitor/setup@1.0.2 ` (npm latest). Install with ` npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install `. New installs enable bounded pseudonymous telemetry by default and can opt out with --no-telemetry; Free analysis pauses when telemetry is off.
 
 The stable package is @vibe-monitor/setup@1.0.1. The published 1.0.1 package requires `--accept-telemetry`. A subsequent patch is being prepared to enable basic telemetry by default on fresh installs, with `--no-telemetry` available and prior opt-outs preserved. Existing Beta.41 users can use the published package with install --migrate-beta --accept-telemetry; no intermediate Beta release is required.
 

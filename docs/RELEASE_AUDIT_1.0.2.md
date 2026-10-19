@@ -1,25 +1,36 @@
 # Vibe Monitor 1.0.2 release audit — 2026-10-19
 
-Status: RELEASE CANDIDATE — NOT YET PUBLISHED.
+Status: PUBLISHED. Single open-source Free/Pro/Team client. No Beta.42 or Free-v1 edition.
 
-Scope is a single open-client package for Free/Pro/Team. No Beta.42, no alternate Free distribution, and no intermediate migration package.
+## Published artifacts and source
 
-## Verified locally
-- macOS Node 22.23.3: 73/73 public automated tests PASS, including two new lifecycle regression cases.
-- npm build PASS, npm package dry run contains exactly six approved files.
-- Official npm Registry production-dependency audit: zero vulnerabilities.
-- Website English + Chinese static surface tests: 7/7 PASS on the private website worktree; deployment still pending.
-- First-install basic pseudonymous telemetry defaults ON after visible notice; --no-telemetry, CLI off and on are available; a prior opt-out survives reinstallation.
-- Stable and private-beta success banner no longer contains the Cloud row in source. Immutable existing Beta.41 cannot be changed retroactively.
-- Install attempt journal records coarse-to-fine stages and read-only doctor diagnostics distinguish suspected stall from confirmed failure.
-- Best-effort explicit installed and Agent-integration-removed events use the established bounded anonymous-account-free Free telemetry transport. Lack of an event is never proof of uninstall.
+- Public release commit: f279c6d069b4c8d3704e72295448459c4a75ed79, PR #17 merged.
+- npm: @vibe-monitor/setup@1.0.2, dist-tag latest, official GitHub OIDC Trusted Publishing.
+- GitHub Release: https://github.com/tubban1/vibe-monitor/releases/tag/v1.0.2, with tarball and release.sha256.
+- npm tarball SHA256: 50ac6cf73f3a34c32f1e49bb530ecc5f326a1b8fc983c8c1dcabb8258cf47da5, npm SHA512 integrity verified.
+- Windows/macOS/Ubuntu Node 22 release source CI passed. Local public client tests 73/73; build, six-file package allowlist and npm audit (zero production vulnerabilities) passed.
+- Publishing succeeded; the immediate Registry dist-tag check failed during propagation, but an independent Registry check confirms latest=1.0.2. The skipped GitHub Release step was manually completed against the same npm tarball and exact source SHA.
 
-## Release blockers requiring evidence
-1. Independent GitHub CI for exact 1.0.2 SHA: Windows, macOS and Ubuntu.
-2. Production acceptance evidence for 1.0.2 installed/integration-removed events and authorized user choice. End-to-end persistence of install failed/stalled and per-step OTA telemetry is NOT yet proven; do not claim an entire remote lifecycle funnel exists.
-3. Fresh product-owner privacy review: stable installation pseudonyms are linkable and the Cloud data region is AWS Singapore; local off does not delete already accepted records.
-4. Official npm Trusted Publishing approval, provenance, and exact six-file tarball integrity.
-5. Website must switch away from @beta only when a compatible stable package has been published. New website instructions are prepared, not yet production deployed.
-6. Only after npm publication: signed OTA manifest, controlled rollout and real Beta.41 migration checks on Mac/Windows.
+## Production cloud, website and signing
 
-Uninstall note: removing every Agent integration does not remove the runtime or local history. The client reports integration_removed rather than uninstalled for open-client setup removal.
+- Neon Function deployment 32 active; three additive reporting views for installation attempts, update attempts and lifecycle summary.
+- Live production telemetry intake smoke: three test stage events accepted, observed in all reporting views, then exact test rows removed (zero test residues). No Beta or real-user history was deleted.
+- Website universal Agent install prompt and bilingual npm paths use @latest, not @beta; internal PR #83 merged, Vercel production is READY, and the live website has been verified.
+- The client no longer displays the Cloud Connected installation-success row (applies to 1.0.2, not immutable Beta.41).
+- The independent production signer fingerprint matches the client trust root; live signed update manifest verifies for the exact npm tarball.
+- OTA began at 0% for signing verification and is currently at a controlled 10% canary (monotonic signed revision 2).
+- An isolated 1.0.2 npm-format tarball test verified download, SHA256, signature, real npm runtime install, next-start activation, rollback and corrupt-archive quarantine.
+
+## Data limitations and safe user choices
+
+- First installs default to disclosed pseudonymous telemetry ON. --no-telemetry, local telemetry off/on, and preserved reinstall opt-out work. Web-based per-device settings are still planned, not shipped.
+- Install stage and update stage telemetry is best effort; offline or force-killed processes can create gaps, which must not be misreported as success/failure.
+- Uninstall here means integration removal, not proven deletion of every file. Manual filesystem deletion and inactivity cannot prove uninstall.
+- Production data region is AWS Singapore. Local telemetry shutdown stops new transmissions but does not erase already accepted remote history.
+- Controlled OTA at 10% is not a completed full-fleet rollout, and actual Beta.41 auto-migration on personal Windows/macOS installations has not been freshly revalidated.
+
+## Links
+
+- https://github.com/tubban1/vibe-monitor/pull/17
+- https://github.com/tubban1/vibe-monitor-internal/pull/82
+- https://github.com/tubban1/vibe-monitor-internal/pull/83
