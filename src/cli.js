@@ -13,6 +13,7 @@ import { activityCursor, formatActivity, readActivity, readActivityFrom } from "
 import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
 import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation, stableReleaseUsesManagedRuntime } from "./install.js";
+import {verifyAndRecordActiveBetaHandoff} from "./beta-stable-handoff.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from "./update.js";
 import { inspectProjectRef, listProjects } from "./projects.js";
@@ -181,7 +182,7 @@ const changesInstalledRuntimeOrAgents=command==="install"||command==="uninstall"
   (command==="update"&&["stage","activate"].includes(args[1]));
 if(isOpenClientDistribution()&&changesInstalledRuntimeOrAgents){
   const betaBlock=detectUnmigratedBetaInstallation();
-  if(betaBlock){
+  if(betaBlock&&!(command==="install"&&await verifyAndRecordActiveBetaHandoff())){
     if(json)print({installed:false,errorCode:betaBlock});
     console.error("Existing Beta installation preserved. Verified Cloud identity migration is required before upgrading; Beta remains unchanged.");
     process.exit(2);

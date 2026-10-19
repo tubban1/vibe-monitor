@@ -10,6 +10,7 @@ import { migrateProjectStateTree, securityStatus, verifyCredentialStore } from "
 import { setTelemetryEnabled, initializeFreeTelemetry } from "./telemetry.js";
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
+import {verifiedBetaHandoffInstalled,verifyAndRecordActiveBetaHandoff} from "./beta-stable-handoff.js";
 import { resolveInstallEndpoint } from "./install-network.js";
 import { getOrCreateDeviceIdentity, deviceStatus } from "./device.js";
 import { BUNDLED_NODE_VERSION, getPlatformAdapter, hardwareArch, nodeDistributionSpec } from "./platform.js";
@@ -644,7 +645,8 @@ export function detectUnmigratedBetaInstallation(){
   // Open-client never reads/imports legacy Beta tokens. Registered Beta
   // Cloud metadata is the reliable signal; semver alone is ambiguous because
   // the audited open-client preview still shares the historical beta version.
-  if(fs.existsSync(path.join(vibeHome(),"cloud","client.json")))
+  if(fs.existsSync(path.join(vibeHome(),"cloud","client.json"))&&
+     !verifiedBetaHandoffInstalled())
     return "legacy_beta_upgrade_requires_verified_handoff";
   return null;
 }
@@ -653,7 +655,7 @@ export async function installOpenClientProduct({agents,local=!stableReleaseUsesM
   if(local&&(typeof cliPath!=="string"||!cliPath))
     throw new Error("community_local_entry_required");
   const blocked=detectUnmigratedBetaInstallation();
-  if(blocked)throw new Error(blocked);
+  if(blocked&&!(await verifyAndRecordActiveBetaHandoff()))throw new Error(blocked);
   const runtime=await installRuntime({local,cliPath});
   onStage("runtime_installed");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});

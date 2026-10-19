@@ -76,3 +76,11 @@ Two opt-in checks (excluded from default CI because they install/download packag
 2. npm run qa:beta41-real-package: downloads genuinely published 0.3.0-beta.41 from npm Registry, validates SHA-512 against Registry dist.integrity, installs it in isolated npm prefix. Synthetic Cloud registration and project history show unverified direct migration is rejected safely, with history/registration preserved and Beta credentials unused. ALL PASS for safety; full verified Beta-to-stable handoff remains NOT VERIFIED.
 
 Both UAT scripts isolate home/state in temporary directories and delete them after tests. They do NOT change existing installed Mac/Windows client, official npm registry, Neon, Cloudflare or the stable 0% rollout.
+
+## Active Beta-to-Stable OSS installer handoff bridge (2026-10-19)
+
+- Private Cloud adds POST /migration/beta/verify. Read-only; restricted by existing Cloudflare handoff switch, IP rate limiter, origin shared secret and Neon switch. Checks only a hashed NEW vms_ token with stableInstallationId + deviceId and ACTIVE state; never accepts legacy vmb_ credentials. Not enabled in production.
+- Public installer accepts Beta home only after private Free-v1 consent with exact terms digest, device match, ACTIVE prepare/activate lineage, and official Cloud confirmation with the NEW Stable credential from OS Vault. Local receipt holds nonsecret IDs only; old Beta Cloud registration and historical files remain untouched.
+- Isolated QA: public verified takeover 3/3 PASS, duplicate Codex registration remains exactly one Vibe Monitor MCP entry; wrong Cloud identity and modified consent denied. Private read-only verifier 3/3 PASS; combined private migration QA 23/23 PASS; public regression 71/71 PASS, build and privacy audit PASS.
+- Published Beta.41 does not yet bundle explicit-consent/prepare/activate helper. Real published-Beta migration and production active-identity UAT remain NO-GO; no migration is performed without per-user consent.
+- Stable 1.0.1 remains unpublished and release-control remains OFF / rollout 0%.
