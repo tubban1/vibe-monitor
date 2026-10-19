@@ -21,7 +21,7 @@ def require(path):
 
 readme = require("README.md")
 privacy = require("docs/governance/TELEMETRY_PRIVACY_V1.md")
-issue = require(".github/ISSUE_TEMPLATE/beta-access.yml")
+issue = require(".github/ISSUE_TEMPLATE/product-feedback.yml")
 if "https://vibe.fde.fan" not in readme:
     errors.append("official_website_missing")
 manifest=json.loads(require("package.json"))
@@ -46,9 +46,15 @@ else:
     if not client_source_disclosed or not unreleased_disclosed:
         errors.append("unreleased_oss_status_disclosure_missing")
 if not privacy or "telemetry" not in privacy.lower():
-    errors.append("beta_privacy_disclosure_missing")
-if not issue or "beta" not in issue.lower():
-    errors.append("beta_application_form_missing")
+    errors.append("stable_privacy_disclosure_missing")
+if not issue or "stable" not in issue.lower():
+    errors.append("stable_feedback_form_missing")
+if not (root / "docs/AGENT_EVALUATION.md").is_file():
+    errors.append("agent_evaluation_protocol_missing")
+if not any(x in readme.lower() for x in ["does not upload", "never uploads"]) or "src/telemetry.js" not in readme:
+    errors.append("source_upload_disclosure_or_audit_link_missing")
+if "no source" not in privacy.lower() and "never uploads raw source" not in privacy.lower():
+    errors.append("source_code_privacy_promise_missing")
 if (root / "website").exists():
     errors.append("marketing_web_source_should_be_private")
 for file in root.rglob("*"):

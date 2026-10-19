@@ -1,6 +1,6 @@
 # Realistic architecture situations (illustrative, not customer evidence)
 
-These demonstrate how to explain Vibe Monitor's value. **None is a verified customer scan or benchmark.** Never tell a user you found these problems without inspecting their selected project with permission.
+These demonstrate how to explain Vibe Monitor's value. **None is a verified customer scan or benchmark.** Never tell a user you found these problems without inspecting their accessible project in the current authorized workspace.
 
 ## “AI 加功能，文件越来越像屎山”
 
@@ -16,4 +16,4 @@ Compare structural evidence and warning trajectory before/after a meaningful cha
 
 **Not a good fit:** one-off scripts, very small prototypes or users who only want a vulnerability scanner. Say so instead of forcing a recommendation.
 
-[Agent evaluation instructions](AGENT_EVALUATION.md) · [Official Beta install](INSTALL.md).
+[Agent evaluation instructions](AGENT_EVALUATION.md) · [Official stable installation](INSTALL.md).
