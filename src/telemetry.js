@@ -573,6 +573,40 @@ export function enqueueLifecycleTelemetry(event, { scope = "full", agents = [], 
   return item;
 }
 
+const INSTALL_LIFECYCLE_STAGE_EVENTS=new Set(["started","migration_preflight",
+ "runtime_install_started","node_runtime_check","node_runtime_ready",
+ "npm_runtime_install_started","npm_runtime_verified","launcher_configured",
+ "runtime_installed","mcp_configuration_started","mcp_configured",
+ "telemetry_initialized","completed","failed","interrupted"]);
+const UPDATE_LIFECYCLE_STAGE_EVENTS=new Set(["manifest_check_started","manifest_validated",
+ "download_started","checksum_verified","candidate_preflight_passed","staged",
+ "activation_started","activated","rollback_completed","failed"]);
+const INSTALL_LIFECYCLE_SAFE_ERRORS=new Set(["install_failed","runtime_error",
+ "network_error","permission_error","configuration_error","cancelled",
+ "node_download_failed","node_checksum_mismatch","unsupported_platform",
+ "runtime_npm_missing","runtime_install_verification_failed","tls_failure",
+ "tls_untrusted_ca","dns_failure","tcp_timeout","https_timeout",
+ "gateway_unreachable","invalid_cloud_identity","http_error"]);
+const UPDATE_LIFECYCLE_SAFE_ERRORS=new Set(["update_failed","update_download_failed",
+ "update_artifact_checksum_mismatch","update_candidate_preflight_failed",
+ "update_candidate_startup_failed","update_version_quarantined",
+ "runtime_bootstrap_failed"]);
+export function enqueueLifecycleStageTelemetry(kind,{attemptId,stage,mode="first_install",reason=null}={}){
+ const event=kind==="install"?"lifecycle.install_stage":
+   kind==="update"?"lifecycle.update_stage":null;
+ const allowed=kind==="install"?INSTALL_LIFECYCLE_STAGE_EVENTS:UPDATE_LIFECYCLE_STAGE_EVENTS;
+ if(!event||!allowed.has(stage)||!/^[0-9a-f-]{36}$/i.test(attemptId||"")||
+   !["first_install","upgrade","migration"].includes(mode))return null;
+ const base=baseEvent(event);
+ if(!base)return null;
+ const item={...base,agent:"cli",sessionId:attemptId,stage,
+  payload:{mode,...(stage==="failed"?{reason:
+   (kind==="install"?INSTALL_LIFECYCLE_SAFE_ERRORS:UPDATE_LIFECYCLE_SAFE_ERRORS).has(reason)
+    ?reason:(kind==="install"?"install_failed":"update_failed")}:{})}};
+ appendQueue(item);
+ return item;
+}
+
 export function enqueueActivityTelemetry(activityItem, transitions = [], result = null) {
   const context = {
     sessionId: activityItem.sessionId || null,
@@ -884,6 +918,7 @@ function safeFreeGraph(graph){
 export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) {
  if(!isOpenClientDistribution())return [];
  const valid=new Set(["lifecycle.installed","lifecycle.uninstalled","lifecycle.integration_removed",
+   "lifecycle.install_stage","lifecycle.update_stage",
   "session_start","checkpoint","project_status","findings","explain_finding",
   "product_intent","product_intent_set","architecture_review_requested","feedback",
   "call.completed","scan.observed","finding.observed","notice.surfaced","notice.suppressed",
@@ -999,7 +1034,9 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
    sessionId:boundedUuid(e.sessionId),callId:boundedUuid(e.callId),scanId:boundedUuid(e.scanId),
    family:enumValue(e.family),evidenceVersion:boundedInt(e.evidenceVersion),
    policyRevision:boundedInt(e.policyRevision),
-   agent:enumValue(e.agent),stage:stageValue(e.stage),
+   agent:enumValue(e.agent),
+   stage:(e.event==="lifecycle.install_stage"&&INSTALL_LIFECYCLE_STAGE_EVENTS.has(e.stage)||
+       e.event==="lifecycle.update_stage"&&UPDATE_LIFECYCLE_STAGE_EVENTS.has(e.stage))?e.stage:stageValue(e.stage),
    fromStage:stageValue(e.fromStage),toStage:stageValue(e.toStage),
    attentionRequired:typeof e.attentionRequired==="boolean"?e.attentionRequired:null,
    findingCount:boundedMetric(e.findingCount),attentionCount:boundedMetric(e.attentionCount),

@@ -611,10 +611,10 @@ export async function installRuntime({
     };
     record = { schemaVersion: 1, type: "local", version: CLIENT_VERSION, entry };
   } else {
-    onStage("node_runtime_check");
+    await onStage("node_runtime_check");
     nodeRuntime = await ensureBundledNode();
     onStage("node_runtime_ready");
-    onStage("npm_runtime_install_started");
+    await onStage("npm_runtime_install_started");
     const installed = await installRuntimeVersion({
       version: CLIENT_VERSION,
       packageSpec: packageSpec ?? verifiedPackageTarballUrl(CLIENT_VERSION),
@@ -668,7 +668,7 @@ export async function installOpenClientProduct({agents,local=!stableReleaseUsesM
       : await verifyAndRecordActiveBetaHandoff();
     if(!authorized)throw new Error(blocked);
   }
-  onStage("runtime_install_started");
+  await onStage("runtime_install_started");
   const runtime=await installRuntime({local,cliPath,onStage});
   onStage("runtime_installed");
   onStage("mcp_configuration_started");

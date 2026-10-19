@@ -4,7 +4,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution } from "./distribution.js";
-import { telemetryStatus } from "./telemetry.js";
+import { telemetryStatus, enqueueLifecycleStageTelemetry } from "./telemetry.js";
 import {
   cloudStatus,
   fetchRemotePolicy,
@@ -440,6 +440,12 @@ export async function stageUpdate({
   force = false,
   nodeRuntime = null
 } = {}) {
+  const attemptId=crypto.randomUUID();
+  const emit=stage=>{
+    if(isOpenClientDistribution())enqueueLifecycleStageTelemetry("update",
+      {attemptId,stage,mode:"upgrade"});
+  };
+  emit("manifest_check_started");
   // A checksum alone cannot authorize code execution: never accept a supplied
   // policy, legacy Beta token or update URL in the unsigned public client.
   if(isOpenClientDistribution()&&(policy||force))
@@ -448,6 +454,7 @@ export async function stageUpdate({
   if(isOpenClientDistribution()&&!signed.manifest)
     throw new Error(signed.reason||"signed_update_manifest_invalid");
   const m=signed?.manifest||null;
+  if(m)emit("manifest_validated");
   const remote = m?{
     source:"signed-free-update",
     update:{enabled:true,channel:"stable",latestVersion:m.version,
@@ -519,11 +526,13 @@ export async function stageUpdate({
     tempDir = fs.mkdtempSync(path.join(stagingDir, "download-"));
     const artifactFile = path.join(tempDir, "vibe-monitor-" + update.latestVersion + ".tgz");
 
+    emit("download_started");
     const artifact = await fetchArtifact(update.artifact.url,{requireNoRedirect:Boolean(m)});
     const actualSha256 = crypto.createHash("sha256").update(artifact).digest("hex");
     if (actualSha256 !== update.artifact.sha256) {
       throw new Error("update_artifact_checksum_mismatch");
     }
+    emit("checksum_verified");
     fs.writeFileSync(artifactFile, artifact, { mode: 0o600 });
 
     const runtime = nodeRuntime || await ensureBundledNode();
@@ -545,6 +554,7 @@ export async function stageUpdate({
       throw new Error("update_candidate_preflight_failed");
     }
 
+    emit("candidate_preflight_passed");
     const stagedAt = new Date().toISOString();
     const state = writeUpdateState({
       currentVersion,
@@ -561,6 +571,7 @@ export async function stageUpdate({
         .filter(version => version !== update.latestVersion)
     });
 
+    emit("staged");
     return {
       staged: true,
       reused: false,
@@ -572,6 +583,8 @@ export async function stageUpdate({
     };
   } catch (error) {
     const code = failureCode(error);
+    if(isOpenClientDistribution())enqueueLifecycleStageTelemetry("update",{
+      attemptId,stage:"failed",mode:"upgrade",reason:code});
     const state = readUpdateState();
     const nextQuarantined = new Set(state.quarantinedVersions || []);
     const quarantineCandidate = new Set([
@@ -727,6 +740,7 @@ export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
   // network failure. Each pass has a single in-flight check.
   const poll = async () => {
     try {
+      reconcileUpdateLifecycleOutcome();
       const status = await updateStatus({ refresh: false });
       if (!signedPublic) observeAvailableUpdate((await fetchRemotePolicy({ force: false }))?.update || {});
       if (!shouldAutoStageUpdate(status, readUpdateState(), { signedPublic })) return;
@@ -756,10 +770,13 @@ export function activateStagedUpdate() {
   if(isOpenClientDistribution()&&(!state.stagedArtifactSha256||
      !fs.existsSync(runtimeVersionEntry(state.stagedVersion))))
    throw new Error("signed_staged_runtime_missing");
-  return writeUpdateState({
+  const updated=writeUpdateState({
     activateOnNextStart: true,
     activationRequestedAt: new Date().toISOString()
   });
+  if(isOpenClientDistribution())enqueueLifecycleStageTelemetry("update",{
+    attemptId:crypto.randomUUID(),stage:"activation_started",mode:"upgrade"});
+  return updated;
 }
 
 export function rollbackUpdate() {
@@ -787,4 +804,31 @@ export function rollbackUpdate() {
   } finally {
     releaseLock();
   }
+}
+
+// Observe verified launch outcome, never mistake an activation request for a
+// completed upgrade. Queue an event before recording the observation cursor.
+export function reconcileUpdateLifecycleOutcome({now=()=>Date.now()}={}){
+  if(!isOpenClientDistribution())return {observed:0};
+  const state=readUpdateState();
+  const file=path.join(updatesRoot(),"lifecycle-observed.json");
+  const before=safeJsonRead(file,{});
+  const outcomes=[
+    {field:"lastActivatedAt",stage:"activated"},
+    {field:"lastRollbackAt",stage:"rollback_completed"}
+  ];
+  const next={...before};
+  let observed=0;
+  for(const outcome of outcomes){
+    const at=state[outcome.field];
+    if(typeof at!=="string"||!Number.isFinite(Date.parse(at))||at===before[outcome.field])continue;
+    // Prevent converting ancient pre-telemetry outcomes into apparent new use.
+    const age=now()-Date.parse(at);
+    if(age<0||age>7*86400_000){next[outcome.field]=at;continue;}
+    const recorded=enqueueLifecycleStageTelemetry("update",{
+      attemptId:crypto.randomUUID(),stage:outcome.stage,mode:"upgrade"});
+    if(recorded){next[outcome.field]=at;observed++;}
+  }
+  if(JSON.stringify(next)!==JSON.stringify(before))try{atomicJsonWrite(file,next);}catch{}
+  return {observed};
 }

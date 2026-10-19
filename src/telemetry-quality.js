@@ -16,6 +16,8 @@ export function decodeEvidenceQuality(x) {
   return encoded.has(x)?x.replaceAll(":","+"):null;
 }
 const required={
+ "lifecycle.install_stage":{top:["sessionId","stage"]},
+ "lifecycle.update_stage":{top:["sessionId","stage"]},
  "finding.observed":{top:["findingId","family","stage","projectId"],payload:["score","confidence","signals","supportingSignalCount"]},
  "scan.observed":{top:["projectId","scanId"],payload:["mode","phaseTimings","structural"]},
  "session_start":{top:["projectId","sessionId"]},

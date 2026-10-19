@@ -33,7 +33,7 @@ function prune(dir,nowMs){
   });
  }catch{/* diagnostics must never block installation */}
 }
-export function createLocalInstallLifecycle({directory=localInstallLifecycleDirectory(),now=()=>Date.now()}={}){
+export function createLocalInstallLifecycle({directory=localInstallLifecycleDirectory(),now=()=>Date.now(),onEvent=()=>{}}={}){
  const enabled=process.env.VIBE_MONITOR_LOCAL_LIFECYCLE!=="off";
  const attemptId=crypto.randomUUID();
  const record={
@@ -51,6 +51,7 @@ export function createLocalInstallLifecycle({directory=localInstallLifecycleDire
    if(stage==="failed")event.errorCode=safeInstallError({message:errorCode});
    record.events.push(event);
    if(enabled)try{atomicJsonWrite(file,record);}catch{/* installation continues */}
+   try{onEvent({...event,attemptId});}catch{/* diagnostics must not block install */}
   },
   summary(){
    return {storage:enabled?"local-only":"disabled",uploaded:false,

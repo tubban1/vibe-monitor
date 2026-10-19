@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {initializeFreeTelemetry,setTelemetryEnabled,enqueueLifecycleTelemetry,
+import {initializeFreeTelemetry,setTelemetryEnabled,enqueueLifecycleTelemetry,enqueueLifecycleStageTelemetry,
   freeTelemetryWireBatch,readTelemetryBatch} from "../src/telemetry.js";
 import {createLocalInstallLifecycle,latestLocalInstallAttempt} from "../src/install-lifecycle.js";
 
@@ -40,8 +40,18 @@ test("anonymous install/integration lifecycle obeys opt-out and sanitizes payloa
     assert.equal(wire[0].event,"lifecycle.installed");
     assert.deepEqual(wire[0].payload.lifecycle.agents,["codex","antigravity"]);
     assert.doesNotMatch(JSON.stringify(wire),/private\/path|rawSource|accessToken/);
+    const attemptId=crypto.randomUUID();
+    const step=enqueueLifecycleStageTelemetry("install",{attemptId,stage:"npm_runtime_install_started"});
+    assert.equal(step.sessionId,attemptId);
+    const projected=freeTelemetryWireBatch(readTelemetryBatch({limit:12}));
+    const stage=projected.find(e=>e.event==="lifecycle.install_stage");
+    assert.equal(stage?.sessionId,attemptId);
+    assert.equal(stage?.stage,"npm_runtime_install_started");
+    assert.deepEqual(stage?.payload,{mode:"first_install"});
+    assert.equal(enqueueLifecycleStageTelemetry("install",{attemptId,stage:"raw_private_file"}),null);
     assert.equal(setTelemetryEnabled(false).enabled,false);
     assert.equal(enqueueLifecycleTelemetry("lifecycle.integration_removed",{agents:["codex"]}),null);
+    assert.equal(enqueueLifecycleStageTelemetry("install",{attemptId,stage:"failed",reason:"install_failed"}),null);
     assert.equal(initializeFreeTelemetry().enabled,false,"explicit opt-out survives new runtime invocation");
   }finally{
     variables.forEach((key,i)=>{if(prior[i]==null)delete process.env[key];else process.env[key]=prior[i];});

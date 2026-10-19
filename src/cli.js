@@ -10,7 +10,7 @@ import { analyzeProject, buildVibeCoderBrief } from "./engine.js";
 import { buildDisabledPolicyPayload, applyMonitoringPolicy, runMcpServer } from "./mcp.js";
 import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setup.js";
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
-import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
+import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus, enqueueLifecycleStageTelemetry } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
 import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation, stableReleaseUsesManagedRuntime } from "./install.js";
 import {verifyAndRecordActiveBetaHandoff} from "./beta-stable-handoff.js";
@@ -195,17 +195,25 @@ if (command === "install") {
       process.exit(2);
     }
     console.error("Telemetry: ON by default for pseudonymous installation, runtime, update and architecture-quality statistics. No source code, prompts, project paths or secrets are uploaded. Set --no-telemetry to install without telemetry; Free analysis is unavailable while telemetry is off. Existing choices are preserved on reinstall; website preferences require a verified account/device connection.");
-    // Honor explicit opt-out before any installer stage (including failures).
+    // Initialize the pseudonymous choice before the first stage so even an
+    // interrupted install can be diagnosed, subject to user opt-out.
     if(args.includes("--no-telemetry")) setTelemetryEnabled(false);
-    const lifecycle=createLocalInstallLifecycle();
+    else if(args.includes("--accept-telemetry")) setTelemetryEnabled(true);
+    else initializeFreeTelemetry();
+    const lifecycle=createLocalInstallLifecycle({onEvent:event=>
+      enqueueLifecycleStageTelemetry("install",{
+        attemptId:event.attemptId,stage:event.stage,
+        mode:args.includes("--migrate-beta")?"migration":"first_install",
+        reason:event.errorCode})});
     lifecycle.mark("started");
     const onInterrupt=()=>{
       lifecycle.mark("interrupted");
-      process.exit(130);
+      void syncFreeTelemetry({force:true}).finally(()=>process.exit(130));
     };
     process.once("SIGINT",onInterrupt);
     process.once("SIGTERM",onInterrupt);
     try {
+      await syncFreeTelemetry({force:true}); // bounded first-stage evidence
       const result=await installOpenClientProduct({
         agents:selectedAgents(),
         local:(!stableReleaseUsesManagedRuntime())||
@@ -214,7 +222,11 @@ if (command === "install") {
            process.env.VIBE_MONITOR_TEST_SECRET_DIR.length>0),
         cliPath:filename,
         migrateBeta:args.includes("--migrate-beta"),
-        onStage:stage=>lifecycle.mark(stage)
+        onStage:async stage=>{
+          lifecycle.mark(stage);
+          if(["node_runtime_check","npm_runtime_install_started"].includes(stage))
+            await syncFreeTelemetry({force:true});
+        }
       });
       if(args.includes("--accept-telemetry") || args.includes("--no-telemetry")){
         const telemetry=setTelemetryEnabled(!args.includes("--no-telemetry"));
@@ -224,6 +236,12 @@ if (command === "install") {
       lifecycle.mark("completed");
       result.lifecycle=lifecycle.summary();
       try {
+        // The install stage queue is bounded and ACKed before reporting the
+        // terminal installed event; never block install on a failed upload.
+        for(let i=0;i<3;i++){
+          const r=await syncFreeTelemetry({force:true});
+          if(r.reason || !r.remaining)break;
+        }
         result.lifecycleDelivery=await reportLifecycleEvent("lifecycle.installed",{
           agents:result.setup?.selectedAgents||[],scope:"full"});
       }catch {result.lifecycleDelivery={queued:false,delivered:false,reason:"report_unavailable"};}
@@ -231,6 +249,7 @@ if (command === "install") {
     }catch(error){
       const code=safeInstallError(error);
       lifecycle.mark("failed",code);
+      await syncFreeTelemetry({force:true}).catch(()=>{});
       if(json)print({installed:false,errorCode:code,lifecycle:lifecycle.summary()});
       console.error("Vibe Monitor installation failed: "+code);
       process.exitCode=1;
