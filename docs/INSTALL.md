@@ -10,13 +10,7 @@ npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
 
 The installer verifies the environment and configures supported coding Agent integration. It may modify **managed MCP and Agent instruction settings** (with scoped backup handling), but not project source code.
 
-**No source-code upload:** Vibe Monitor analyzes source locally and does not transmit source files, diffs, prompts, project paths or credentials to its servers. The bounded pseudonymous product telemetry is ON by default for new installs and disclosed during installation. To opt out at installation time:
-
-```bash
-npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install --no-telemetry
-```
-
-Turning product telemetry OFF pauses the current Free architecture analysis. Prior opt-outs persist across reinstall; the local CLI also supports `vibe-monitor telemetry off` and `vibe-monitor telemetry on`. Website-level individual device preferences are planned, not yet available.
+**No source-code upload:** Vibe Monitor analyzes source locally and does not transmit source files, diffs, prompts, project paths or credentials to its servers. Bounded pseudonymous product telemetry is disclosed during installation; details and user controls are documented in the [telemetry and privacy contract](governance/TELEMETRY_PRIVACY_V1.md).
 
 ## Verify
 
