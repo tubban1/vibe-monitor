@@ -39,6 +39,8 @@ Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
 ## Installation
 
+The reviewed candidate package identifier is @vibe-monitor/setup@1.0.2 (NOT YET PUBLISHED). Until it is released with provenance, npm latest remains the immutable 1.0.1 package. This candidate must not be installed from an unofficial registry.
+
 The stable package is @vibe-monitor/setup@1.0.1. The published 1.0.1 package requires `--accept-telemetry`. A subsequent patch is being prepared to enable basic telemetry by default on fresh installs, with `--no-telemetry` available and prior opt-outs preserved. Existing Beta.41 users can use the published package with install --migrate-beta --accept-telemetry; no intermediate Beta release is required.
 
 ### Architecture policies
