@@ -392,10 +392,10 @@ function scrubQueuedArchitectureProfiles() {
 export function initializeFreeTelemetry() {
   if (!isOpenClientDistribution()) return telemetryStatus();
   const previous = safeJsonRead(configFile(), null);
-  // First install accepts the disclosed Free product-improvement contract.
-  // If stopped, Free analysis also stops; the user may restore both together.
-  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: true,
-    consentVersion: "telemetry-v1", dataIntelligenceDecision: "included",
+  // First install does not silently enable telemetry.
+  // Explicit consent is required before Free architecture analysis starts.
+  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: false,
+    consentVersion: null, dataIntelligenceDecision: null,
     updatedAt: new Date().toISOString() });
   if (readConfig().enabled) ensureIdentity();
   return telemetryStatus();

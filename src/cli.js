@@ -194,7 +194,11 @@ if (command === "install") {
       console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Telemetry preferences are managed on the website.");
       process.exit(2);
     }
-    console.error("Free architecture analysis requires product-improvement telemetry, including derived architecture patterns, technical categories, recommendations and reported outcomes. No raw source, prompts, paths or notes. Run telemetry inspect to review collected events; telemetry preferences are managed on the website.");
+    console.error("Free architecture analysis requires product-improvement telemetry. No raw source, prompts or paths. Use --accept-telemetry to consent; preferences remain manageable after installation.");
+    if(!args.includes("--accept-telemetry") && !telemetryStatus().enabled){
+      if(json)print({installed:false,errorCode:"telemetry_policy_consent_required",nextAction:"Retry with --accept-telemetry after reviewing the privacy notice."});
+      process.exit(2);
+    }
     const lifecycle=createLocalInstallLifecycle();
     lifecycle.mark("started");
     try {
@@ -202,6 +206,11 @@ if (command === "install") {
         agents:selectedAgents(),local:!stableReleaseUsesManagedRuntime(),cliPath:filename,
         onStage:stage=>lifecycle.mark(stage)
       });
+      if(args.includes("--accept-telemetry")){
+        const telemetry=setTelemetryEnabled(true);
+        result.telemetry={...result.telemetry,...telemetry,defaultEnabled:false};
+        result.activation.serviceEnabled=telemetry.enabled===true;
+      }
       lifecycle.mark("completed");
       result.lifecycle=lifecycle.summary();
       if(json)print(result);else printInstallWelcome(result);
@@ -532,7 +541,7 @@ if (command === "install") {
     console.error("Vibe Monitor Private Beta requires telemetry. Setup cancelled.");
     process.exit(2);
   }
-  const telemetryDefaultOn = true;
+  const telemetryDefaultOn = !openClient;
   const local = args.includes("--local");
   const installedRuntime = local ? null : installStatus();
   // Reconfigure installed coding agents against the stable, rollback-capable
@@ -541,6 +550,10 @@ if (command === "install") {
     ? installedRuntime.launcher : undefined;
   if (openClient && args.includes("--no-telemetry")) {
     console.error("Free analysis requires telemetry. Setup cancelled before modifying Agent settings.");
+    process.exit(2);
+  }
+  if(openClient && !dryRun && !args.includes("--accept-telemetry") && !telemetryStatus().enabled){
+    if(json)print({installed:false,errorCode:"telemetry_policy_consent_required",nextAction:"Run setup with --accept-telemetry after reviewing the privacy notice."});
     process.exit(2);
   }
   const setup = installSetup({
@@ -565,7 +578,7 @@ if (command === "install") {
     const migration = migrateProjectStateTree();
     if (openClient) console.error("Free product-improvement telemetry is required for Free analysis. telemetry off stops both collection and analysis; telemetry on restores service. Anonymous Cloud intake is not released.");
     const telemetry = openClient
-      ? (args.includes("--no-telemetry") ? setTelemetryEnabled(false) : initializeFreeTelemetry())
+      ? (args.includes("--accept-telemetry") ? setTelemetryEnabled(true) : initializeFreeTelemetry())
       : setTelemetryEnabled(telemetryDefaultOn);
     const intelligence = openClient ? {} : await configureIntelligenceConsent();
     print({
