@@ -1,15 +1,15 @@
-name: Private beta interest
-description: Express interest in testing Vibe Monitor. This is a PUBLIC issue — do not share private details or activation codes.
-title: "[Beta] Interested in trying Vibe Monitor"
+name: Product feedback / feature idea
+description: Share feedback or a feature idea for the public stable Vibe Monitor client. This is a PUBLIC issue — do not share private data.
+title: "[Feedback] Vibe Monitor"
 labels: []
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for your interest in Vibe Monitor. The current npm package is a **private beta**, not yet the public open-source release.
+        Vibe Monitor is available as an open-source stable client. You can install it from the official npm latest release; this issue is for general feedback, not access codes.
 
         **This GitHub issue is public. Never include your email address, source code, repository URLs, passwords, enterprise network details, activation codes or other secrets.**
-        Requesting access does not automatically grant a beta activation code. Maintainers will reply with further instructions if places are available.
+        No private project or contact information is needed to submit feedback.
   - type: dropdown
     id: agent
     attributes:

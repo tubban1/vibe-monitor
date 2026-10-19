@@ -69,7 +69,7 @@ jobs:
         run: |
           test ! -d website
           test ! -e .env
-          test -f .github/ISSUE_TEMPLATE/beta-access.yml
+          test -f .github/ISSUE_TEMPLATE/product-feedback.yml
       - id: detect-client
         name: Detect audited OSS client sources
         shell: bash

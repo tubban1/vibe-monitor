@@ -1,22 +1,24 @@
-# Vibe Monitor — Security & Privacy
+# Vibe Monitor — security, local code analysis and telemetry
 
-**Your code stays yours.**
+## Source-code privacy — verifiable in public code
 
-Vibe Monitor analyzes your project locally. Your source code, prompts, and project files are never uploaded to our servers.
+**Vibe Monitor does not upload source code to its servers.** Source files, code diffs, prompts, project names/paths, credentials, secrets and raw logs are excluded from the product telemetry wire format. Its actual source scan runs locally. Rather than relying only on this statement, verify:
 
-Cloud connectivity delivers architecture policies and supports privacy-conscious product improvement.
+- `src/telemetry.js`: narrow event schema and `freeTelemetryWireBatch` projection.
+- `src/telemetry-quality.js`: allowlisted fields and projection quality checks.
+- `src/cloud.js`: bounded `/free/telemetry` network submission.
+- `test/oss-lifecycle-telemetry.test.js` and other telemetry contract tests for redaction and opt-out.
 
-[Privacy & Data Practices](https://github.com/tubban1/vibe-monitor/blob/main/docs/governance/TELEMETRY_PRIVACY_V1.md)
+This statement covers **Vibe Monitor's own telemetry and network upload path**. A separate coding Agent may transmit files or context to its model provider under that provider's settings and terms; do not conflate the two.
 
-## Security boundaries
+## Current stable release behavior
 
-- **Read-only project analysis:** scanning does not rewrite project source. Installing does change supported Agent MCP/rules configuration; scoped backups are implemented for existing files.
-- **Current private Beta data practices:** participation requires disclosed telemetry. This sends limited, pseudonymized architecture, usage, performance and outcome signals—not source code, diffs, prompts, secrets, raw paths, filenames or raw logs. The [exact contract](docs/governance/TELEMETRY_PRIVACY_V1.md) explains the fields, local inspection and controls. Cloud policy delivery and telemetry collection are separate functions.
-- **Future plans:** Free, Pro and Team will share a client, but future-release telemetry terms are not the current Beta contract. They will be disclosed when released.
-- **Agent host is separate:** a user's Codex/Claude/Cursor/ChatGPT may process code the user authorizes that Agent to inspect under the Agent provider's own data policy. Vibe Monitor's no-source-upload statement refers to Vibe Monitor's servers, not third-party Agent providers.
-- **No separately installed always-on daemon:** the integration runs in Agent-driven MCP sessions; automatic calls depend on the Agent host and are not guaranteed.
-- **Uninstall scope:** `vibe-monitor uninstall` disconnects managed Agent integration, not necessarily every local cache/history file, backup or remote record. A complete-purge claim is **not** supported yet.
+- **Official release:** `@vibe-monitor/setup@latest`; the public client supports the Free/Pro/Team model.
+- **Scanning:** source inspection is read-only; installing or disconnecting Vibe Monitor may update managed coding Agent MCP/rules settings, with scoped backups.
+- **Product telemetry:** bounded pseudonymous installation/architecture/use events default ON on fresh installs, not code. Use `--no-telemetry` or `vibe-monitor telemetry off` to stop; Free analysis pauses. A previous opt-out persists. Accepted historical Cloud data is not retroactively deleted by a local opt-out.
+- **Storage:** the telemetry intake currently uses Neon AWS Singapore; installation/project pseudonyms may count as personal data. See [current privacy contract](docs/governance/TELEMETRY_PRIVACY_V1.md).
+- **Policy delivery:** signed declarative architecture scoring rules, not arbitrary remotely executed code.
+- **Runtime:** Agent-invoked MCP workflow, not a separately installed permanent daemon.
+- **Removal:** `vibe-monitor uninstall` removes managed Agent integration, not necessarily every local history file, backup or already retained Cloud record.
 
-[User-approved preinstall fit check](docs/AGENT_EVALUATION.md) · [Install/verify/uninstall](docs/INSTALL.md).
-
-Do not report secrets or exploitable details in public issues; contact the maintainer privately.
+Read [installation guide](docs/INSTALL.md) or use the [automatic Agent code-project evaluation](docs/AGENT_EVALUATION.md). Never disclose sensitive security issues or credentials in public issues; contact maintainers privately.

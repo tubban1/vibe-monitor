@@ -1,73 +1,47 @@
 # Vibe Monitor
 
-> [!WARNING]
-> **Current stable: Vibe Monitor 1.0.2.** Official npm OIDC Trusted Publishing completed on 2026-10-19. Beta.41 migration follows the direct stable bridge.
+**A local architecture advisor for AI coding workflows.** AI agents ship features fast; Vibe Monitor helps you see when architectural complexity is accumulating and what actually needs attention.
 
-> [!NOTE]
-> **Official signed stable update is live.** The immutable npm 1.0.2 package is released, with an initial 10% signed OTA rollout.
+## Get started — official stable release
 
-**AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
+The open-source client is published on npm as **`@vibe-monitor/setup@latest`** (currently **`@vibe-monitor/setup@1.0.2`**). One client is used for Free/Pro/Team; future paid features are not separate installers.
 
-**AI ships code fast. It can build spaghetti code even faster. Vibe Monitor helps your coding agent spot architectural trouble before it gets expensive.**
+```bash
+npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
+```
 
-A **read-only project architecture advisor for the coding agent you already use**, not another IDE and not a machine for flooding you with warnings.
+On a new install, bounded **pseudonymous** product telemetry defaults **ON**, with notice. Use `install --no-telemetry` or `vibe-monitor telemetry off` to disable collection; this pauses Free architecture analysis. An existing opt-out survives reinstall. No activation code is required.
 
-- **What's getting harder to change?** Identify concrete pressure in your project's structure and change history.
-- **What should I do next?** Get a practical next step—and learn what **not** to over-engineer.
-- **Did it actually help?** Track what improved or got worse across coding sessions.
+**Not sure whether your projects need it?** Give your coding Agent this one canonical instruction:
 
-> **Illustrative advice format (not a real scan):** “This file mixes UI and storage changes. Before adding another feature, separate the storage interaction. **Don't split into microservices yet**; the evidence doesn't justify that complexity.”
+**[Analyze accessible code projects and return a direct recommendation →](docs/AGENT_EVALUATION.md)**
 
-**Your code stays yours.**
+The Agent must inspect code projects already accessible in its current workspaces, decide which would benefit (if any), and report the results **to you in the chat**. No installation or external report submission occurs during the assessment.
 
-Vibe Monitor analyzes your project locally. Your source code, prompts, and project files are never uploaded to our servers.
+## Your source code is not uploaded
 
-Cloud connectivity delivers architecture policies and supports disclosed product-improvement telemetry.
+**Vibe Monitor analyzes source locally. It never uploads source files, diffs, prompts, project paths or secrets to Vibe Monitor servers.** Bounded derived metrics and product-operation events can be sent through disclosed pseudonymous telemetry, not the code itself. You can **audit the open-source implementation** instead of relying on a marketing promise:
 
+- [Local telemetry event projection and strict wire fields](src/telemetry.js)
+- [Allowed telemetry field checks](src/telemetry-quality.js)
+- [Outbound telemetry transport](src/cloud.js)
+- [Detailed security boundaries](SECURITY.md) and [current telemetry/privacy contract](docs/governance/TELEMETRY_PRIVACY_V1.md)
 
-[Privacy & Data Practices](https://github.com/tubban1/vibe-monitor/blob/main/docs/governance/TELEMETRY_PRIVACY_V1.md)
+The *coding Agent itself* (Codex, Claude Code, Cursor, etc.) may process code under **its own provider's terms**. That is separate from Vibe Monitor's own upload behavior.
 
-🌐 [Website](https://vibe.fde.fan) · [Ask your Agent to evaluate Vibe Monitor](docs/AGENT_EVALUATION.md) · [Security and privacy](SECURITY.md)
+## What you gain
 
-## Ask your coding agent first
+- **Evidence before alerts:** architecture pressure, coupling, module responsibilities and tests.
+- **Practical priorities:** what to improve now, what to leave alone and when to reassess.
+- **Historical perspective:** how architectural signals evolve across coding sessions.
+- **Low overhead:** local structural scans do not call an LLM; optional Agent-assisted interpretation may use tokens.
 
-Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
+Vibe Monitor scans project code read-only. **Installation** registers supported Agent MCP/rules configuration and may create local history/backups. No separately installed always-on monitoring daemon is required.
 
-> Look at https://vibe.fde.fan and https://github.com/tubban1/vibe-monitor. Explain what Vibe Monitor really does, its limitations, security, data collection, and installation. If you have filesystem access, **ask me which project you may inspect**. With my permission, inspect only that project **read-only** and identify one or two real architecture or workflow pain points from evidence. Tell me honestly whether Vibe Monitor would help, or why I don't need it. Don't install or execute downloaded software, change files, or upload project data without my approval.
+## Documentation
 
-[Full Agent evaluation flow and report template →](docs/AGENT_EVALUATION.md)
+[Official installation and verification](docs/INSTALL.md) · [Agent evaluation/report protocol](docs/AGENT_EVALUATION.md) · [Illustrative architectural scenarios](docs/EXAMPLES.md) · [Security](SECURITY.md) · [Telemetry/privacy](docs/governance/TELEMETRY_PRIVACY_V1.md) · [Website](https://vibe.fde.fan)
 
-## Installation
+### Open source
 
-The stable package is ` @vibe-monitor/setup@1.0.2 ` (npm latest). Install with ` npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install `. New installs enable bounded pseudonymous telemetry by default and can opt out with --no-telemetry; Free analysis pauses when telemetry is off.
-
-The stable package is @vibe-monitor/setup@1.0.1. The published 1.0.1 package requires `--accept-telemetry`. A subsequent patch is being prepared to enable basic telemetry by default on fresh installs, with `--no-telemetry` available and prior opt-outs preserved. Existing Beta.41 users can use the published package with install --migrate-beta --accept-telemetry; no intermediate Beta release is required.
-
-### Architecture policies
-
-The client scans source locally and accepts signed architecture-scoring and guidance rules from `GET https://vibe-api.fde.fan/free/policy`. It retains a small local fallback. Proprietary rules stay on the private Cloud side; the client never executes arbitrary remote code.
-
-### Product telemetry
-
-Telemetry collects bounded pseudonymous product and architecture events, not source code, paths, prompts or credentials. Starting with 1.0.2, first installs default ON with disclosed --no-telemetry opt-out, and local telemetry off/on is available. Opt-out survives reinstalls and pauses Free analysis. Website device-level settings are not yet available.
-
-Product events are uploaded separately through `POST /free/telemetry` only when the production gateway and Neon intake are enabled. This intake has independent rate-limiting, bounded payload validation and an origin shared secret; a successful policy fetch does not imply telemetry acceptance. Unsigned or unavailable Cloud policy falls back to the minimal local rules.
-
-The signed Cloud strategy and telemetry intake were verified live on 2026-10-18. The audited 1.0.1 path writes sanitized product events into the existing public.events model without moving Beta history. Cloud telemetry records have no automatic TTL or scheduled purge; scoped legal erasure requires a separate auditable process. The database is in AWS Singapore. Linkable pseudonymous identifiers may qualify as personal data; privacy approval for public release remains a separate gate.
-
-[Privacy & Data Practices](docs/governance/TELEMETRY_PRIVACY_V1.md)
-
-## What happens to your code and computer?
-
-| Concern | Verified behavior / limit |
-| --- | --- |
-| Read-only code analysis | Project source is analyzed without rewriting it. **Installing does modify managed Agent MCP/rule configuration.** |
-| No source-code upload in product telemetry | Source, diffs, prompts, secrets, paths and filenames are not uploaded by default telemetry. Coarse architecture, usage and outcome signals **are** sent under the disclosed contract. |
-| No extra always-on daemon | Designed around Agent MCP sessions and checkpoints; not a separately installed permanent monitoring daemon. Invocation depends on the host Agent. |
-| Backup and undo | Supported configuration files use scoped backup/managed-block mechanisms. `uninstall` removes managed Agent integration; it does **not** guarantee deletion of all local history or backups. |
-
-[Detailed security boundaries →](SECURITY.md) · [Practical scenarios →](docs/EXAMPLES.md)
-
-## Is Vibe Monitor open source?
-
-Yes. The client is Apache-2.0 and its source is in this public repository. Its proprietary cloud scoring configuration is separate and signed. This repository contains the single unified client, not separate Free, Pro or Team installers. Stable npm distribution and provenance are controlled by the official GitHub Actions release workflow.
+The unified client is Apache-2.0 licensed and publicly auditable here. Signed Cloud policy/scoring configuration is a separate proprietary service; policy delivery does not grant permission to upload raw source or execute arbitrary remote code. Official release provenance: [GitHub Releases](https://github.com/tubban1/vibe-monitor/releases) and [npm `@vibe-monitor/setup`](https://www.npmjs.com/package/@vibe-monitor/setup).
