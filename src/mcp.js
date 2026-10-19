@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import nodePath from "node:path";
 import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -29,10 +31,11 @@ import {
   persistArchitectureReviewRequest,
   persistArchitectureReviewResponse
 } from "./architecture-review.js";
-import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTelemetry } from "./telemetry.js";
+import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTelemetry, initializeFreeTelemetry } from "./telemetry.js";
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
+import { detectorRuleId, monitorFamilyForDetector } from "./rule-identity.js";
 import { recommendationGroups } from "./diagnostic-quality.js";
 import { highSeverityReviewQueue } from "./finding-intelligence.js";
 import { compareVersions, consumeUpdateNotice, observeAvailableUpdate, scheduleAutomaticUpdate, updateStatus } from "./update.js";
@@ -55,6 +58,7 @@ function recordCallTiming(result, callStartedAt) {
 function compactAttentionFinding(finding) {
   return {
     id: finding.id,
+    ruleId: finding.ruleId || detectorRuleId(finding.family),
     family: finding.family,
     stage: finding.stage,
     target: finding.target,
@@ -156,10 +160,15 @@ export function buildAgentResult(result, { sessionStart = false, attentionFilter
 export function applyMonitoringPolicy(result, policy = {}) {
   const enabled = policy.enabledMonitors || {};
   const isEnabled = family => enabled[family] !== false;
-  const findings = result.findings.filter(finding => isEnabled(finding.family));
+  const findings = result.findings
+    .filter(finding => isEnabled(monitorFamilyForDetector(finding.family)))
+    .map(finding => ({
+      ...finding,
+      ruleId: finding.ruleId || detectorRuleId(finding.family)
+    }));
   const activeIds = new Set(findings.map(finding => finding.id));
   const transitions = (result.transitions || []).filter(change =>
-    (change.family ? isEnabled(change.family) : activeIds.has(change.id))
+    (change.family ? isEnabled(monitorFamilyForDetector(change.family)) : activeIds.has(change.id))
   );
   const attention = findings.filter(finding => finding.requiresAttention);
   return {
@@ -262,6 +271,38 @@ export function buildSkippedSessionPayload(reason = "user_skipped", callId = nul
   };
 }
 
+// IDE launchers often start MCP with their *application installation* as
+// cwd, not the editor's open workspace. Scanning such directories can appear
+// healthy while failing to inspect any user code. Require an explicit project
+// selection unless cwd can genuinely be identified as a project.
+export function isSafeImplicitProjectCwd(candidate) {
+  if (typeof candidate !== "string" || !candidate.trim()) return false;
+  const normalized = candidate.split(String.fromCharCode(92)).join("/").replace(/\/+/g, "/").toLowerCase();
+  if (normalized.includes("/appdata/local/programs/") ||
+      normalized.includes("/program files/") ||
+      normalized.includes("/program files (x86)/")) return false;
+  try {
+    const root = findProjectRoot(candidate);
+    return fs.existsSync(nodePath.join(root, ".git")) ||
+      ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"].some(
+        filename => fs.existsSync(nodePath.join(root, filename))
+      );
+  } catch {
+    return false;
+  }
+}
+
+export function projectPathRequiredPayload() {
+  return {
+    serviceEnabled: null,
+    disabledBy: "project_selection",
+    status: { assessmentAvailable: false, attentionRequired: false,
+      highestStage: "unknown", findingCount: null, attentionCount: null },
+    monitoring: { mode: "unavailable", reason: "project_path_required",
+      nextAction: "Pass the absolute path of the open coding project to vibe_session_start or vibe_project_status. The IDE installation directory is not a coding project." }
+  };
+}
+
 // Scoped to one MCP server instance. Never share a host's project path
 // between Agent processes. Successful assessments bind the implicit target.
 export function createMcpProjectContext(cwd = () => process.cwd()) {
@@ -274,6 +315,7 @@ export function createMcpProjectContext(cwd = () => process.cwd()) {
       return {
         path: explicit ? inputPath : (confirmedRoot || cwd()),
         explicit,
+        fallbackToHostCwd: !explicit && !confirmedRoot,
         order: explicit ? ++nextExplicitOrder : 0
       };
     },
@@ -295,7 +337,16 @@ export function createMcpProjectContext(cwd = () => process.cwd()) {
   };
 }
 
+// Direct npm / npx / agent-managed MCP installs may bypass setup.
+// On a first open-client boot, telemetry defaults ON. An existing explicit
+// opt-out remains unchanged across restarts.
+export function initializeMcpTelemetry() {
+  if (isOpenClientDistribution()) return initializeFreeTelemetry();
+  return null;
+}
+
 export async function runMcpServer({ agent: explicitAgent = null } = {}) {
+  initializeMcpTelemetry();
   const server = new McpServer({ name: "vibe-monitor", version: CLIENT_VERSION });
   const allowedAgents = new Set(["codex", "claude", "cursor", "antigravity", "trae"]);
   const agent = allowedAgents.has(explicitAgent) ? explicitAgent : detectAgentHost();
@@ -305,7 +356,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   const activeSessionScans = new Set();
   if(!isOpenClientDistribution())void syncCloudDevice().catch(() => {});
   let noticesShownThisSession = 0;
-  const pathSchema = z.string().optional().describe("Path inside ONE specific project Git repository. Never pass a workspace parent that contains several independent repositories. Defaults to last successfully assessed project in this MCP session, then MCP process working directory.");
+  const pathSchema = z.string().optional().describe("Absolute path to ONE coding project (prefer its Git repository root), NOT the IDE's application folder or a parent of multiple repositories. When omitted, uses the last successfully assessed project or a recognizable Git/project cwd; otherwise returns project_path_required.");
 
   server.registerTool("vibe_version", {
     description: "Get the Vibe Monitor version currently running in this MCP process, the installed current/previous runtime versions, staged update, and update state. A process may still run an older bundle after the installed pointer changes. Use this tool when the user asks which Vibe Monitor version is running or installed. schemaVersion and evidenceVersion are data format versions, NOT the software version.",
@@ -337,6 +388,10 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   ) {
     if (signal?.aborted) throw new ScanControlError("scan_cancelled");
     const selection = projectContext.resolve(inputPath);
+    if (selection.fallbackToHostCwd && !isSafeImplicitProjectCwd(selection.path)) {
+      return { result: null, remotePolicy: null, disabled: true, callId,
+        disabledPayload: projectPathRequiredPayload() };
+    }
     onPhase?.("policy");
     const policyStartedAt = Date.now();
     const remotePolicy = await cancelAware(resolveDistributionPolicy({fetchPolicy:fetchRemotePolicy,force:forcePolicy}),signal);

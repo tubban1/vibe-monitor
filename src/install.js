@@ -32,6 +32,12 @@ export function runtimeVersionRoot(version) {
 
 // Direct immutable npm tarball bypasses stale beta dist-tag and package-metadata
 // caches. npm still verifies HTTPS certificates and installs dependencies normally.
+// Stable 1.0.0+ must install into a managed, immutable version slot so the
+// signed updater can activate and roll back without relying on ephemeral npx.
+export function stableReleaseUsesManagedRuntime(version=CLIENT_VERSION) {
+  return /^[0-9]+[.][0-9]+[.][0-9]+$/.test(version);
+}
+
 export function verifiedPackageTarballUrl(version) {
   const value = String(version || "");
   if (!/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(value)) throw new Error("invalid_runtime_version");
@@ -581,7 +587,7 @@ export async function installRuntimeVersion({
 export async function installRuntime({
   local = false,
   cliPath,
-  packageSpec = verifiedPackageTarballUrl(CLIENT_VERSION)
+  packageSpec = null
 } = {}) {
   ensureDir(runtimeRoot());
   let record;
@@ -606,7 +612,7 @@ export async function installRuntime({
     nodeRuntime = await ensureBundledNode();
     const installed = await installRuntimeVersion({
       version: CLIENT_VERSION,
-      packageSpec,
+      packageSpec: packageSpec ?? verifiedPackageTarballUrl(CLIENT_VERSION),
       nodeRuntime
     });
     entry = installed.entry;
@@ -643,12 +649,12 @@ export function detectUnmigratedBetaInstallation(){
   return null;
 }
 
-export async function installOpenClientProduct({agents,local=true,cliPath,onStage=()=>{}}={}){
-  if(!local||typeof cliPath!=="string"||!cliPath)
+export async function installOpenClientProduct({agents,local=!stableReleaseUsesManagedRuntime(),cliPath,onStage=()=>{}}={}){
+  if(local&&(typeof cliPath!=="string"||!cliPath))
     throw new Error("community_local_entry_required");
   const blocked=detectUnmigratedBetaInstallation();
   if(blocked)throw new Error(blocked);
-  const runtime=await installRuntime({local:true,cliPath});
+  const runtime=await installRuntime({local,cliPath});
   onStage("runtime_installed");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});
   onStage("mcp_configured");

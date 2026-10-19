@@ -10,6 +10,7 @@ import { enrichFindingIntelligence } from "./finding-intelligence.js";
 import { observeOutcomeCheckpoint } from "./outcomes.js";
 import { detectEncodedIdContract } from "./contract-evidence.js";
 import { scoringPolicyIdentity,monitorPolicyFingerprint,scoreFromSignedSignals,signedAdviceForFamily } from "./decision-policy.js";
+import { detectorRuleId } from "./rule-identity.js";
 
 function fileMap(snapshot) {
   return new Map((snapshot?.files || []).map(file => [file.path, file]));
@@ -1244,6 +1245,9 @@ function buildFindings(projectId, current, previous, intent, root, decisionPolic
     const contractFinding=detectEncodedIdContract(root,current.files,projectId);
     if(contractFinding)findings.push(contractFinding);
   }
+
+  // Stable local detector identity, distinct from signed Cloud policy metadata.
+  for (const finding of findings) finding.ruleId = detectorRuleId(finding.family);
 
   // Preserve evidence scores while explaining a cloud-calibrated stage. Some
   // specialist safety/intent guards deliberately cap the stage after scoring.
