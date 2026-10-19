@@ -31,7 +31,7 @@ import {
   persistArchitectureReviewRequest,
   persistArchitectureReviewResponse
 } from "./architecture-review.js";
-import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTelemetry } from "./telemetry.js";
+import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTelemetry, initializeFreeTelemetry } from "./telemetry.js";
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
@@ -337,7 +337,16 @@ export function createMcpProjectContext(cwd = () => process.cwd()) {
   };
 }
 
+// Direct npm / npx / agent-managed MCP installs may bypass setup.
+// On a first open-client boot, telemetry defaults ON. An existing explicit
+// opt-out remains unchanged across restarts.
+export function initializeMcpTelemetry() {
+  if (isOpenClientDistribution()) return initializeFreeTelemetry();
+  return null;
+}
+
 export async function runMcpServer({ agent: explicitAgent = null } = {}) {
+  initializeMcpTelemetry();
   const server = new McpServer({ name: "vibe-monitor", version: CLIENT_VERSION });
   const allowedAgents = new Set(["codex", "claude", "cursor", "antigravity", "trae"]);
   const agent = allowedAgents.has(explicitAgent) ? explicitAgent : detectAgentHost();

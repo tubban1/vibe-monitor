@@ -7,7 +7,7 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {buildAgentResult,applyMonitoringPolicy,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
+import {buildAgentResult,applyMonitoringPolicy,initializeMcpTelemetry,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
 import {detectorRuleId,monitorFamilyForDetector} from "../src/rule-identity.js";
 import {POLICY_V2_FAMILIES} from "../src/decision-policy.js";
 import {updateStatus} from "../src/update.js";
@@ -507,4 +507,24 @@ test("Stable local ruleId is distinct from Cloud policy and data-contract respec
  assert.equal(disabled.findings.length,1,"Cloud api-contract monitor must mask specialized encoded ID detector");
  assert.equal(disabled.status.findingCount,1);
  assert.equal(raw.findings[0].ruleId,undefined,"raw finding must not be mutated by presentation mapping");
+});
+
+test("Direct MCP boot initializes Free telemetry ON while preserving an existing opt-out",()=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-mcp-telemetry-boot-"));
+ const vars=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"];
+ const prev=vars.map(x=>process.env[x]);
+ try{
+  process.env.VIBE_MONITOR_HOME=tmp;
+  process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(tmp,"secrets");
+  assert.equal(fs.existsSync(path.join(tmp,"free-telemetry","config.json")),false);
+  const first=initializeMcpTelemetry();
+  assert.equal(first.enabled,true,"first MCP boot must initialize default-ON telemetry");
+  assert.equal(fs.existsSync(path.join(tmp,"free-telemetry","config.json")),true);
+  assert.equal(initializeMcpTelemetry().enabled,true);
+  assert.equal(setTelemetryEnabled(false).enabled,false);
+  assert.equal(initializeMcpTelemetry().enabled,false,"an explicit prior opt-out must remain off");
+ }finally{
+  vars.forEach((k,i)=>{if(prev[i]===undefined)delete process.env[k];else process.env[k]=prev[i];});
+  fs.rmSync(tmp,{recursive:true,force:true});
+ }
 });
