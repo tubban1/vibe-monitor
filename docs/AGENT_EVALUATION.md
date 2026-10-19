@@ -31,4 +31,4 @@ Next step: [one practical action]
 Caveats: [permission or evidence limitations, if any]
 ```
 
-No telemetry, website ping or external report submission is part of this assessment. An ordinary coding Agent may have separate model-provider data processing policies; the no-source-upload promise above applies to **Vibe Monitor's product upload path**, not a separate provider used by the Agent to examine code.
+By default no website ping or external report submission is part of this assessment. Only when the user explicitly opts into an optional one-time completion receipt on the website, the copied prompt may include a short-lived token authorizing a bounded, self-reported completion POST. Send only the permitted aggregate counts, agent family and completion status; never send source, paths, project names or the report. Without a token, do not submit anything. An ordinary coding Agent may have separate model-provider data processing policies; the no-source-upload promise above applies to **Vibe Monitor's product upload path**, not a separate provider used by the Agent to examine code.
