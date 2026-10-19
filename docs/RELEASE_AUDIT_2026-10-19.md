@@ -57,3 +57,13 @@ No current Mac or Windows installations, legacy credentials, Cloudflare deployme
 - Patched production Cloudflare gateway GET /free/update-manifest to route to vibeupdate, preserving prior Policy/Telemetry origin and bindings. Verified: update 503, /free/policy 200 and /health 200.
 - SECRET HANDOFF NOT COMPLETE: automated private-key transfer blocked by host safety checks. Neon Function has no FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM and /health returns signerReady=false.
 - No npm publication, release enablement, rollout, or installed-client change.
+
+## Authorized production signer handoff — verified after operator deployment (2026-10-19)
+
+- Operator manually deployed Neon Function vibeupdate, deployment 2, with FREE_UPDATE_SIGNING_ENABLED and FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM. The private key value was not included in a Git commit, log, chat response, or repository artifact.
+- Live isolated Neon GET /health: HTTP 200, signerReady=true, signer public-key SHA-256 fingerprint 955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2, matching the client OTA trust pin.
+- Live isolated Neon and official Cloudflare gateway GET /free/update-manifest: HTTP 503 signed_free_update_unavailable, without signed envelope, because stable release remains disabled.
+- Live official Cloudflare GET /free/policy: HTTP 200, signed community policy revision 2. Official gateway GET /health: HTTP 200.
+- Neon stable release_control row: enabled=false, rollout_percent=0, free_signed_revision=0; version, artifact URL and artifact digest NULL. No public stable auto-upgrade can be authorized yet.
+- Original temporary signing-key directory was cleared after the private key was moved outside repositories to a restricted local backup (0700 directory, 0600 file); fingerprint verified. A separate encrypted off-machine recovery backup is still recommended.
+- Signer provisioning gate PASS. Real immutable npm artifact, signed release manifest rollout, three-OS native upgrades, Beta-safe handoff and website-only Telemetry governance remain NO-GO.
