@@ -534,6 +534,8 @@ test("Signed automatic upgrade handles pre-1.0 Beta to 1.0.0 and future stable s
  assert.equal(compareVersions("0.9.9","1.0.0"),-1);
  assert.equal(compareVersions("1.0.0","1.0.1"),-1);
  assert.equal(compareVersions("1.0.1-rc.0","1.0.1"),-1);
+ assert.equal(compareVersions("1.0.1-rc.0","1.0.0"),1,
+  "RC 1.0.1-rc.0 is GREATER than 1.0.0; a downgrade must not be called OTA");
  assert.equal(compareVersions("1.1.0","1.0.0"),1);
  const manifest={source:"signed-free-update",updateEnabled:true,eligible:true,
     available:true,artifactReady:true,latestVersion:"1.0.1",autoStage:false};

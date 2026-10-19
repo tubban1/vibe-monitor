@@ -28,6 +28,7 @@ Coverage exists for the three detected items under the same live strategy, but n
 5. Old Beta Cloud metadata still activates legacy_beta_upgrade_requires_verified_handoff and blocks direct public install/setup. Automatic migration requires a compatible and approved legacy Beta Cloud rollout. Older unmanaged or incompatible Beta versions need a safe fallback migration installer. Neither path is verified end to end.
 6. Public CLI disallows telemetry on/off and starts with telemetry ON, but website-to-client settings changes require end-to-end verification.
 7. Exact Beta.41/RC field-value parity (all 13 monitor families, evidence quality, outcome, feedback and notice families) is NOT fully evidenced, and live score differences must be approved.
+8. SemVer release-cutover blocker: existing 1.0.1-rc.0 is newer than 1.0.0. Normal anti-downgrade refuses 1.0.1-rc.0 -> 1.0.0. Prefer first stable release 1.0.1, or design a separately reviewed explicit RC-to-1.0.0 migration; never bypass rollback/downgrade guards silently.
 
 ## Required release gates
 - Independent custody and fingerprint approval of the production OTA Ed25519 public verification key; the private key is never copied into Git or the client.
