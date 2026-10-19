@@ -389,13 +389,16 @@ function scrubQueuedArchitectureProfiles() {
   });
 }
 
-export function initializeFreeTelemetry() {
+export function initializeFreeTelemetry({defaultEnabled=true}={}) {
   if (!isOpenClientDistribution()) return telemetryStatus();
   const previous = safeJsonRead(configFile(), null);
-  // First install does not silently enable telemetry.
-  // Explicit consent is required before Free architecture analysis starts.
-  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: false,
-    consentVersion: null, dataIntelligenceDecision: null,
+  // First installation defaults basic service telemetry on, with visible
+  // disclosure; reinstall never overrides an existing opt-out or choice.
+  // No identifiers, code, prompts, paths or secrets are sent by this initializer.
+  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1,
+    enabled: defaultEnabled === true,
+    consentVersion: defaultEnabled === true ? "telemetry-default-v1" : null,
+    dataIntelligenceDecision: defaultEnabled === true ? "included" : null,
     updatedAt: new Date().toISOString() });
   if (readConfig().enabled) ensureIdentity();
   return telemetryStatus();

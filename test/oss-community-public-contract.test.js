@@ -291,7 +291,7 @@ test("Free explicit outcome action and verification queue stable anonymous links
  process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(root,"secrets");
  t.after(()=>{keys.forEach((k,i)=>{if(prior[i]===undefined)delete process.env[k];else process.env[k]=prior[i];});
    fs.rmSync(root,{recursive:true,force:true});});
- assert.equal(initializeFreeTelemetry().enabled,false);
+ assert.equal(initializeFreeTelemetry().enabled,true);
  assert.equal(setTelemetryEnabled(true).enabled,true);
  const record={outcomeId:crypto.randomUUID(),findingId:"VM-SECRET123",family:"code-structure",
   baseline:{stage:"S4",evidenceVersion:7},action:{disposition:"applied",actor:"user",changeRef:"private-sha"},
@@ -333,7 +333,7 @@ test("Free tiny offline queue expires at seven days and opt-out blocks later eve
  fs.mkdirSync(legacy,{recursive:true});
  const state='{"enabled":true,"consentVersion":"private-beta-v4"}';
  fs.writeFileSync(path.join(legacy,"config.json"),state);
- assert.equal(initializeFreeTelemetry().enabled,false);
+ assert.equal(initializeFreeTelemetry().enabled,true);
  assert.equal(setTelemetryEnabled(true).enabled,true);
  const file=path.join(root,"free-telemetry","queue.jsonl");
  const stale={eventId:crypto.randomUUID(),at:new Date(Date.now()-9*86400_000).toISOString(),event:"checkpoint"};
@@ -366,7 +366,7 @@ test("Free explicit-consent queue is separate from old Beta, bounded and opt-out
  fs.mkdirSync(betaDir,{recursive:true});
  const old=JSON.stringify({enabled:true,consentVersion:"private-beta-v4"});
  fs.writeFileSync(path.join(betaDir,"config.json"),old);
- assert.equal(initializeFreeTelemetry().enabled,false);
+ assert.equal(initializeFreeTelemetry().enabled,true);
  assert.equal(setTelemetryEnabled(true).enabled,true);
  assert.equal(telemetryStatus().consentVersion,"telemetry-v1");
  for(let i=0;i<1500;i++)
@@ -512,7 +512,7 @@ test("Stable local ruleId is distinct from Cloud policy and data-contract respec
  assert.equal(raw.findings[0].ruleId,undefined,"raw finding must not be mutated by presentation mapping");
 });
 
-test("Direct MCP boot preserves telemetry OFF until explicit consent",()=>{
+test("Direct MCP boot defaults telemetry ON and preserves opt-out",()=>{
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-mcp-telemetry-boot-"));
  const vars=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"];
  const prev=vars.map(x=>process.env[x]);
@@ -521,9 +521,9 @@ test("Direct MCP boot preserves telemetry OFF until explicit consent",()=>{
   process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(tmp,"secrets");
   assert.equal(fs.existsSync(path.join(tmp,"free-telemetry","config.json")),false);
   const first=initializeMcpTelemetry();
-  assert.equal(first.enabled,false,"first MCP boot must remain OFF without consent");
+  assert.equal(first.enabled,true,"first MCP boot enables default service telemetry");
   assert.equal(fs.existsSync(path.join(tmp,"free-telemetry","config.json")),true);
-  assert.equal(initializeMcpTelemetry().enabled,false);
+  assert.equal(initializeMcpTelemetry().enabled,true);
   assert.equal(setTelemetryEnabled(true).enabled,true);
   assert.equal(initializeMcpTelemetry().enabled,true,"explicit consent must survive restart");
   assert.equal(setTelemetryEnabled(false).enabled,false);

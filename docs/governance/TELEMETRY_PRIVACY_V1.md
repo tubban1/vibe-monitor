@@ -1,26 +1,26 @@
 # Telemetry & Privacy Contract v4
 
-Status: Production policy and telemetry intake verified; npm stable 1.0.1 not yet published
+Status: Stable 1.0.1 published; 1.0.2 pseudonymous telemetry and lifecycle patch under review
 Date: 2026-10-18
 
 ## At a glance
 
 Vibe Monitor analyzes source code locally. The unified client collects bounded product-operation, architectural, usage, performance and outcome signals. Default telemetry does **not** upload source code, diffs, prompts, secrets, filenames, repository names or raw project paths. The data includes stable installation IDs and pseudonymous project/finding identifiers; linkable pseudonyms may still count as personal data. `vibe-monitor telemetry status` and `vibe-monitor telemetry inspect` are read-only ways to check what is queued.
 
-For the upcoming stable 1.0.1 client, telemetry is enabled by default at installation and is required for architecture analysis. CLI mutation commands are intentionally disabled. **An authenticated website control for an individual installation is not yet available.** Do not claim that per-user website opt-out is available; stopping use or uninstalling the client stops new collection, but does not erase previously received records. The official stable package is not yet published.
+Published 1.0.1 requires explicit --accept-telemetry. The 1.0.2 release candidate enables disclosed pseudonymous telemetry on a first installation, accepts --no-telemetry, and preserves previous opt-outs on reinstall. The public CLI provides local telemetry off/on while the authenticated website/device preference editor is not ready. Turning telemetry off pauses Free analysis, but Cloud history previously accepted is not deleted.
 
 ## Single client, separate policy and telemetry interfaces
 
 - `GET /free/policy`: live Cloud-to-client declarative architecture policy, signed with Ed25519 and verified against a pinned client public key. `community` and `free` are internal compatibility identifiers, **not** distinct client products.
 - `POST /free/telemetry`: live client-to-Cloud product telemetry, rate-limited by Cloudflare, validated again in Neon and previously persisted in the now-obsolete `public.telemetry_events` table. The replacement under QA will store sanitized events in the existing `public.events` table while retaining independent Beta `/events` authentication. No replacement package has been published.
 
-Both production interfaces passed live checks on 2026-10-18, including one synthetic database write subsequently removed. Live endpoint availability does not itself mean the npm 1.0.1 package has been published.
+The production policy and telemetry interfaces were checked in October 2026. Endpoint reachability alone does not prove the 1.0.2 lifecycle data model or release acceptance.
 
 ## Storage and privacy limits
 
 Accepted product history (pseudonymous usage, architecture evolution, recommendations, feedback and outcome verification) has **no automatic age-based Cloud TTL, scheduled deletion or purge**. Local queues and caches have separate cleanup policies. An installation identifier and linkable pseudonyms are not guaranteed to be anonymous. Legally required targeted erasure needs an authorized, auditable procedure.
 
-The Neon production database is hosted in **AWS Singapore (`aws-ap-southeast-1`)**. International-transfer compliance, lawful basis, notices, security/access controls, storage retention, and the not-yet-implemented individual website controls require product-owner/privacy review before a public stable release is authorized. This document is a factual technical disclosure, **not** a legal compliance certification.
+The Neon production database is hosted in AWS Singapore (aws-ap-southeast-1). Linkable installation pseudonyms may qualify as personal data. Cross-border processing, lawful basis, retention and default-on notice require renewed privacy approval before 1.0.2 is published; website device controls remain pending. This disclosure is not a compliance certification.
 
 The client is currently one open-source product; separate Pro or Team client variants are not released. A future commercial plan is not an existing user entitlement.
 
@@ -300,9 +300,9 @@ vibe-monitor telemetry inspect
 vibe-monitor telemetry on
 ```
 
-During the current private beta, `telemetry off` and installation/setup with `--no-telemetry` are rejected. The user can always inspect the exact queued payload and can stop participating by uninstalling/disconnecting Vibe Monitor.
+Private Beta.41 has its own required-telemetry terms. The 1.0.2 public client instead supports --no-telemetry during install, and local telemetry off/on. This does not erase previously accepted Cloud records.
 
-The required-telemetry policy is explicit and versioned. A future public/stable plan may define optional telemetry, but that would be a product-policy change rather than an implicit relaxation of this private-beta contract.
+Public Free analysis pauses when telemetry is off. On reinstall a previous disabled choice is preserved. Website controls are planned, not yet available.
 
 A separate global `service_control.enabled` kill switch can stop Vibe Monitor entirely. When disabled, project scans, findings/notices and telemetry upload stop; only the lightweight control-plane check remains so a later reactivation can be discovered.
 

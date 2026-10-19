@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createInstallTracker, retryPendingInstallAttempts } from "./install-tracking.js";
 import {safeInstallError} from "./install-error.js";
-import { createLocalInstallLifecycle } from "./install-lifecycle.js";
+import { createLocalInstallLifecycle, latestLocalInstallAttempt } from "./install-lifecycle.js";
 import { INSTALL_NETWORK_MESSAGES } from "./install-network.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -130,7 +130,6 @@ function printInstallWelcome(result) {
       Architecture Intelligence
 `));
   status(result.installed, "Installed", version);
-  status(result.activation?.registered, "Cloud", result.activation?.registered ? "Connected" : "Not registered");
   status(result.activation?.serviceEnabled, "Monitoring", result.activation?.serviceEnabled ? "Enabled" : "Disabled by policy");
   console.log("  Data Intelligence: " + (result.telemetry?.dataIntelligenceEnabled ? "Enabled" : "Not enabled (optional)"));
   status(agents.length > 0, "Agent", agentLabel);
@@ -191,17 +190,21 @@ if(isOpenClientDistribution()&&changesInstalledRuntimeOrAgents){
 }
 if (command === "install") {
   if (isOpenClientDistribution()) {
-    if (args.includes("--no-telemetry")) {
-      console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Telemetry preferences are managed on the website.");
+    if (args.includes("--no-telemetry") && args.includes("--accept-telemetry")) {
+      console.error("Choose either --no-telemetry or --accept-telemetry, not both.");
       process.exit(2);
     }
-    console.error("Free architecture analysis requires product-improvement telemetry. No raw source, prompts or paths. Use --accept-telemetry to consent; preferences remain manageable after installation.");
-    if(!args.includes("--accept-telemetry") && !telemetryStatus().enabled){
-      if(json)print({installed:false,errorCode:"telemetry_policy_consent_required",nextAction:"Retry with --accept-telemetry after reviewing the privacy notice."});
-      process.exit(2);
-    }
+    console.error("Telemetry: ON by default for pseudonymous installation, runtime, update and architecture-quality statistics. No source code, prompts, project paths or secrets are uploaded. Set --no-telemetry to install without telemetry; Free analysis is unavailable while telemetry is off. Existing choices are preserved on reinstall; website preferences require a verified account/device connection.");
+    // Honor explicit opt-out before any installer stage (including failures).
+    if(args.includes("--no-telemetry")) setTelemetryEnabled(false);
     const lifecycle=createLocalInstallLifecycle();
     lifecycle.mark("started");
+    const onInterrupt=()=>{
+      lifecycle.mark("interrupted");
+      process.exit(130);
+    };
+    process.once("SIGINT",onInterrupt);
+    process.once("SIGTERM",onInterrupt);
     try {
       const result=await installOpenClientProduct({
         agents:selectedAgents(),
@@ -213,13 +216,17 @@ if (command === "install") {
         migrateBeta:args.includes("--migrate-beta"),
         onStage:stage=>lifecycle.mark(stage)
       });
-      if(args.includes("--accept-telemetry")){
-        const telemetry=setTelemetryEnabled(true);
-        result.telemetry={...result.telemetry,...telemetry,defaultEnabled:false};
-        result.activation.serviceEnabled=telemetry.enabled===true;
+      if(args.includes("--accept-telemetry") || args.includes("--no-telemetry")){
+        const telemetry=setTelemetryEnabled(!args.includes("--no-telemetry"));
+        result.telemetry={...result.telemetry,...telemetry,defaultEnabled:true};
+        result.activation.serviceEnabled=telemetry.serviceEnabled===true;
       }
       lifecycle.mark("completed");
       result.lifecycle=lifecycle.summary();
+      try {
+        result.lifecycleDelivery=await reportLifecycleEvent("lifecycle.installed",{
+          agents:result.setup?.selectedAgents||[],scope:"full"});
+      }catch {result.lifecycleDelivery={queued:false,delivered:false,reason:"report_unavailable"};}
       if(json)print(result);else printInstallWelcome(result);
     }catch(error){
       const code=safeInstallError(error);
@@ -227,6 +234,9 @@ if (command === "install") {
       if(json)print({installed:false,errorCode:code,lifecycle:lifecycle.summary()});
       console.error("Vibe Monitor installation failed: "+code);
       process.exitCode=1;
+    } finally {
+      process.removeListener("SIGINT",onInterrupt);
+      process.removeListener("SIGTERM",onInterrupt);
     }
   } else {
   if (args.includes("--no-telemetry")) {
@@ -360,7 +370,7 @@ if (command === "install") {
 } else if (command === "license") {
   print(cloudStatus());
 } else if (command === "doctor") {
-  print({ install: installStatus(), security: securityStatus(), telemetry: telemetryStatus() });
+  print({ install: installStatus(), installLifecycle: latestLocalInstallAttempt(), security: securityStatus(), telemetry: telemetryStatus() });
 } else if (command === "activity") {
   if (isOpenClientDistribution() && !freeAnalysisContractStatus().serviceEnabled) {
     print(buildDisabledPolicyPayload({enabled:false,source:"free-service-contract",reason:"telemetry_required"}));
@@ -391,8 +401,8 @@ if (command === "install") {
   }
 } else if (command === "telemetry") {
   const action = args[1] || "status";
-  if (isOpenClientDistribution() && (["on","off"].includes(action) || (action === "intelligence" && ["on","off"].includes(args[2])))) {
-    console.error("Telemetry settings are managed on the Vibe Monitor website, not from this client.");
+  if (isOpenClientDistribution() && action === "intelligence" && ["on","off"].includes(args[2])) {
+    console.error("Individual telemetry-category settings require verified device pairing on the website. Use telemetry off to stop all collection now.");
     process.exitCode = 2;
   } else if (action === "intelligence") {
     const choice = args[2] || "status";
@@ -548,19 +558,15 @@ if (command === "install") {
     console.error("Vibe Monitor Private Beta requires telemetry. Setup cancelled.");
     process.exit(2);
   }
-  const telemetryDefaultOn = !openClient;
+  const telemetryDefaultOn = true;
   const local = args.includes("--local");
   const installedRuntime = local ? null : installStatus();
   // Reconfigure installed coding agents against the stable, rollback-capable
   // launcher. Never silently switch a registered IDE back to npx @latest.
   const stableLauncher = installedRuntime?.launcherPresent && installedRuntime?.runtimePresent
     ? installedRuntime.launcher : undefined;
-  if (openClient && args.includes("--no-telemetry")) {
-    console.error("Free analysis requires telemetry. Setup cancelled before modifying Agent settings.");
-    process.exit(2);
-  }
-  if(openClient && !dryRun && !args.includes("--accept-telemetry") && !telemetryStatus().enabled){
-    if(json)print({installed:false,errorCode:"telemetry_policy_consent_required",nextAction:"Run setup with --accept-telemetry after reviewing the privacy notice."});
+  if (openClient && args.includes("--no-telemetry") && args.includes("--accept-telemetry")) {
+    console.error("Choose either --no-telemetry or --accept-telemetry, not both.");
     process.exit(2);
   }
   const setup = installSetup({
@@ -583,9 +589,11 @@ if (command === "install") {
     });
   } else {
     const migration = migrateProjectStateTree();
-    if (openClient) console.error("Free product-improvement telemetry is required for Free analysis. telemetry off stops both collection and analysis; telemetry on restores service. Anonymous Cloud intake is not released.");
+    if (openClient) console.error("Telemetry defaults ON for new installations; --no-telemetry opts out. Reconfiguration preserves prior preferences. Website changes require verified account/device linkage.");
     const telemetry = openClient
-      ? (args.includes("--accept-telemetry") ? setTelemetryEnabled(true) : initializeFreeTelemetry())
+      ? (args.includes("--accept-telemetry") ? setTelemetryEnabled(true)
+          : args.includes("--no-telemetry") ? setTelemetryEnabled(false)
+          : initializeFreeTelemetry())
       : setTelemetryEnabled(telemetryDefaultOn);
     const intelligence = openClient ? {} : await configureIntelligenceConsent();
     print({
@@ -610,11 +618,14 @@ if (command === "install") {
   const removal = uninstallSetup({ agents: selectedAgents() });
   const classification = classifyUninstallLifecycle(removal);
   let report = { queued: false, delivered: false, reason: "no_change" };
-  // Open-client uninstall never reports lifecycle data to the private Beta Cloud,
-  // even if an earlier Beta left credentials on the same computer.
-  if (classification.event && !isOpenClientDistribution()) {
+  // Uninstall here removes Agent integration; runtime files may remain.
+  // For open-client, report integration_removed even when all Agents are gone.
+  // It is not proof that executable/local history has been deleted.
+  if (classification.event) {
     try {
-      report = await reportLifecycleEvent(classification.event, classification);
+      const event = isOpenClientDistribution()
+        ? "lifecycle.integration_removed" : classification.event;
+      report = await reportLifecycleEvent(event, classification);
     } catch {
       report = { queued: false, delivered: false, reason: "report_unavailable" };
     }
@@ -628,7 +639,7 @@ if (command === "install") {
     "Vibe Monitor " + CLIENT_VERSION + (isOpenClientDistribution() ? "" : " private beta"),
     "",
     "Usage:",
-    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--migrate-beta] [--accept-telemetry] [--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
+    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--migrate-beta] [--no-telemetry|--accept-telemetry] [--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
     "  vibe-monitor session-start [path] [--json]",
     "  vibe-monitor checkpoint [path] [--json]",
     "  vibe-monitor status [path] [--json]",
