@@ -27,7 +27,7 @@ import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 export const FREE_UPDATE_MANIFEST_URL="https://vibe-api.fde.fan/free/update-manifest";
 export const FREE_UPDATE_KEY_ID="free-update-ed25519-v1";
 export const FREE_UPDATE_NEXT_KEY_ID="free-update-ed25519-v2";
-export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM=null;
+export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAqyVComzhk1MeD77dSfr+ec86w7YSjxBSs3nA2NpktYU=\n-----END PUBLIC KEY-----\n";
 export const FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
 const stableVersion=/^\d+\.\d+\.\d+$/;
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;

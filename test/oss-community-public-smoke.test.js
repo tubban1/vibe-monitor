@@ -155,7 +155,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(qaPairing.status,2,"Beta QA-only account pairing must be blocked in the open client even with QA env enabled");
  assert.match(qaPairing.stderr,/not released for the open client/);
  assert.equal(fs.existsSync(path.join(app,"cloud","client.json")),false);
- // Before a signed OSS artifact root ships, the old Beta update system is inert.
+ // The pinned OTA key does not authorize updates without a valid signed release manifest.
  for(const action of ["status","check"]){
   const query=run("update",action,"--json");
   assert.equal(query.status,0,query.stderr?.slice(0,600));
@@ -163,10 +163,10 @@ test("unified open client performs offline scan, install and uninstall with no u
   assert.equal(status.updateEnabled,false);
   assert.equal(status.available,false);
   assert.equal(status.source,"open-client");
-  assert.equal(status.reason,"signed_update_channel_not_configured");
+  assert.equal(status.reason,"signed_update_manifest_unavailable");
  }
  const unsignedUpdateErrors={
-  stage:"signed_update_channel_not_configured",
+  stage:"signed_update_manifest_unavailable",
   activate:"no_staged_update",
   rollback:"no_previous_runtime"
  };
@@ -175,8 +175,17 @@ test("unified open client performs offline scan, install and uninstall with no u
   assert.equal(mutation.status,2,"Unsigned open-client update "+action+" must fail closed");
   assert.match(mutation.stderr,new RegExp(reason));
  }
- assert.equal(fs.existsSync(path.join(app,"updates")),false,
-  "Open-client legacy updater must not persist update state");
+ // A signed-manifest check may record a bounded attempt timestamp, but
+ // must never stage or activate anything while the release feed is disabled.
+ const stateFile=path.join(app,"updates","state.json");
+ if(fs.existsSync(stateFile)){
+  const state=JSON.parse(fs.readFileSync(stateFile,"utf8"));
+  assert.equal(state.stagedVersion??null,null);
+  assert.equal(state.activateOnNextStart===true,false);
+  assert.equal(state.lastStageAt??null,null);
+ }
+ assert.equal(fs.existsSync(path.join(app,"runtime","versions")),false,
+  "Disabled signed feed must not install runtime artifacts");
  const strategy=run("cloud","config","--json");
  assert.equal(strategy.status,0);
  assert.equal(JSON.parse(strategy.stdout).source,"local-baseline");

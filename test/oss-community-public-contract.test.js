@@ -130,7 +130,7 @@ test("independent signed stable update manifest accepts only pinned release meta
  const sign=pl=>({keyId:FREE_UPDATE_KEY_ID,payload:pl,
   signature:crypto.sign(null,Buffer.from(JSON.stringify(pl)),keys.privateKey).toString("base64url")});
  const verify=(e)=>verifyFreeUpdateEnvelope(e,{keys:{[FREE_UPDATE_KEY_ID]:keys.publicKey},now:()=>now});
- assert.equal(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,null);
+ assert.match(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,/^-----BEGIN PUBLIC KEY-----/);
  assert.equal(verifyFreeUpdateEnvelope(sign(payload),{now:()=>now}),null);
  assert.equal(verify(sign(payload)).version,"1.0.0");
  const forged=sign(payload);forged.payload={...payload,artifact:{...payload.artifact,sha256:"b".repeat(64)}};
@@ -548,7 +548,7 @@ test("Signed automatic upgrade handles pre-1.0 Beta to 1.0.0 and future stable s
  assert.equal(shouldAutoStageUpdate(manifest,{quarantinedVersions:["1.0.1"]},{signedPublic:true}),false);
  assert.equal(shouldAutoStageUpdate(manifest,{lastFailureReason:"update_download_failed",
     lastFailureAt:new Date().toISOString()},{signedPublic:true}),false);
- // No production signer exists yet: RC must fail closed, not claim OTA works.
+ // Pinned key alone cannot authorize a remote update without a signed manifest.
  if (FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM===null)assert.equal(scheduleAutomaticUpdate(),false);
 });
 test("Stable publication is blocked when a signed public updater cannot operate",()=>{
@@ -571,4 +571,15 @@ test("Stable official releases use managed immutable slots, never the npx epheme
  assert.equal(stableReleaseUsesManagedRuntime("1.0.1"),true);
  assert.equal(stableReleaseUsesManagedRuntime("2.0.0"),true);
  assert.equal(stableReleaseUsesManagedRuntime("1.0.1-beta.0"),false);
+});
+
+test("Production OTA trust root is pinned independently of Cloud architecture policy",()=>{
+ const pem=FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM;
+ assert.match(pem,/^-----BEGIN PUBLIC KEY-----/);
+ const key=crypto.createPublicKey(pem);
+ assert.equal(key.asymmetricKeyType,"ed25519");
+ assert.equal(crypto.createHash("sha256").update(
+  key.export({format:"der",type:"spki"})).digest("hex"),
+  "955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2");
+ assert.notEqual(pem,COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM);
 });

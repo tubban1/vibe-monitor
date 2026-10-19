@@ -48,3 +48,12 @@ No current Mac or Windows installations, legacy credentials, Cloudflare deployme
 - Neon stable release_control row: disabled, 0% rollout, no artifact/version. Active Function does not advertise FREE_UPDATE_SIGNING_ENABLED or FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM. Production OTA remains NO-GO.
 - No production key generated; no Cloudflare/Neon deployment, rollout enablement, npm publish, or user installation modified in this sprint.
 - Windows Computer MCP returns Session terminated; new Windows-native upgrade is NOT VERIFIED.
+
+## Authorized production OTA infrastructure stage (2026-10-19)
+
+- Generated a separate production Ed25519 keypair in a protected local temporary directory, private file mode 0600. Pinned only its public key; SHA-256 fingerprint: 955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2.
+- Added free_signed_revision (integer NOT NULL DEFAULT 0) to Neon release_control. Stable row remains enabled=false, rollout_percent=0, with no artifact/version.
+- Deployed isolated Neon Function vibeupdate, deployment 1, with FREE_UPDATE_SIGNING_ENABLED=0. GET /health reports signer status and GET /free/update-manifest rejects release downloads.
+- Patched production Cloudflare gateway GET /free/update-manifest to route to vibeupdate, preserving prior Policy/Telemetry origin and bindings. Verified: update 503, /free/policy 200 and /health 200.
+- SECRET HANDOFF NOT COMPLETE: automated private-key transfer blocked by host safety checks. Neon Function has no FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM and /health returns signerReady=false.
+- No npm publication, release enablement, rollout, or installed-client change.
