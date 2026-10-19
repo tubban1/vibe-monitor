@@ -30,8 +30,7 @@ try{
  const pkg=JSON.parse(fs.readFileSync(path.join(src,"package.json"),"utf8"));
  pkg.version=version;fs.writeFileSync(path.join(src,"package.json"),JSON.stringify(pkg,null,2));
  const f=path.join(src,"src/constants.js");const c=fs.readFileSync(f,"utf8");
- assert.ok(c.includes('CLIENT_VERSION = "1.0.1-rc.0"'));
- fs.writeFileSync(f,c.replace('CLIENT_VERSION = "1.0.1-rc.0"','CLIENT_VERSION = "1.0.1"'));
+ assert.ok(c.includes('CLIENT_VERSION = "1.0.1"'));
  for(const [entry,out] of [["src/cli.js","dist/vibe-monitor.mjs"],["src/scan-worker.js","dist/vibe-monitor-scan-worker.mjs"]])
   run(path.join(repo,"node_modules/.bin/esbuild"),[entry,"--bundle","--packages=external","--platform=node","--format=esm","--target=node20","--minify","--legal-comments=none","--outfile="+out],src);
  const tarDir=path.join(temp,"tarballs");fs.mkdirSync(tarDir);

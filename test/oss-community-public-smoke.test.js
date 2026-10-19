@@ -27,7 +27,8 @@ test("unified open client performs offline scan, install and uninstall with no u
   VIBE_MONITOR_HOME:app,VIBE_MONITOR_SETUP_HOME:home,
   VIBE_CLOUD_URL:"http://127.0.0.1:1",
   VIBE_MONITOR_TEST_SECRET_DIR:path.join(temp,"secrets"),
-  VIBE_MONITOR_TEST_MASTER_KEY:"f".repeat(64)};
+  VIBE_MONITOR_TEST_MASTER_KEY:"f".repeat(64),
+  VIBE_MONITOR_TEST_SOURCE_INSTALL:"1"};
  const cli=path.join(root,"src","cli.js");
  const run=(...args)=>spawnSync(process.execPath,["--import",blockUrl,cli,...args],
   {cwd:temp,env,encoding:"utf8",timeout:30000,maxBuffer:3e6});
@@ -93,7 +94,7 @@ test("unified open client performs offline scan, install and uninstall with no u
   assert.equal(fs.existsSync(path.join(home,".codex","config.toml")),false);
  }
  fs.rmSync(legacyMetadata);
- const install=run("install","--codex","--json");
+ const install=run("install","--codex","--accept-telemetry","--json");
  assert.equal(install.status,0,install.stderr?.slice(0,600));
  const result=JSON.parse(install.stdout);
  assert.equal(result.distribution,"open-client");

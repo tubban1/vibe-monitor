@@ -47,11 +47,11 @@ function rpc(method,params={},timeout=90000){
 }
 function unpack(r){const c=r?.content?.find(x=>x.type==="text")?.text;if(!c)return r;try{return JSON.parse(c)}catch{return c;}}
 function noError(r,label){if(r?.isError)throw new Error(label+" tool error: "+JSON.stringify(r).slice(0,400));return unpack(r)}
-const output={version:"1.0.1-rc.0",os:process.platform,agent:"antigravity",checks:[],startedAt:new Date().toISOString(),syntheticProject:true};
+const output={version:"1.0.1",os:process.platform,agent:"antigravity",checks:[],startedAt:new Date().toISOString(),syntheticProject:true};
 const check=(name,success,details)=>{output.checks.push({name,pass:!!success,...(details?{details}:{} )});if(!success)throw new Error(name+" FAILED");};
 try{
  const init=await rpc("initialize",{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"windows-antigravity-rc-qa",version:"1"}});
- check("MCP initialize",init?.serverInfo?.version==="1.0.1-rc.0",{serverVersion:init?.serverInfo?.version});
+ check("MCP initialize",init?.serverInfo?.version==="1.0.1",{serverVersion:init?.serverInfo?.version});
  child.stdin.write(JSON.stringify({jsonrpc:"2.0",method:"notifications/initialized"})+"\n");
  const list=await rpc("tools/list",{});
  const names=(list?.tools??[]).map(x=>x.name);
@@ -59,7 +59,7 @@ try{
  for(const name of ["vibe_version","vibe_session_start","vibe_project_status","vibe_checkpoint","vibe_findings","vibe_explain_finding"])
   check("Tool available: "+name,names.includes(name));
  const version=noError(await rpc("tools/call",{name:"vibe_version",arguments:{}}),"vibe_version");
- check("Runtime version correct",JSON.stringify(version).includes("1.0.1-rc.0"));
+ check("Runtime version correct",JSON.stringify(version).includes("1.0.1"));
  const session=noError(await rpc("tools/call",{name:"vibe_session_start",arguments:{path:project}}),"vibe_session_start");
  check("Synthetic project session initialized",!session?.error&&!session?.monitoring?.disabled);
  const noPath=noError(await rpc("tools/call",{name:"vibe_project_status",arguments:{}}),"vibe_project_status");

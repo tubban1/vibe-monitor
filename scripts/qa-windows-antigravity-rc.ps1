@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $expected = "fbf260c"
 $branch = "fix/rc-prod-precision-20261018"
-$version = "1.0.1-rc.0"
+$version = "1.0.1"
 $install = Join-Path $Workspace "vibe-monitor"
 $stage = Join-Path $env:TEMP ("vibe-monitor-upgrade-"+[guid]::NewGuid().ToString("N"))
 $source = Join-Path $stage "source"
@@ -33,7 +33,7 @@ try {
     npm.cmd run build; CheckExit "RC build"
     npm.cmd pack --pack-destination $archiveDir; CheckExit "RC pack"
   } finally { Pop-Location }
-  $archive = Join-Path $archiveDir "vibe-monitor-setup-1.0.1-rc.0.tgz"
+  $archive = Join-Path $archiveDir "vibe-monitor-setup-1.0.1.tgz"
   if(-not(Test-Path $archive)){throw "Expected archive not found"}
   npm.cmd install --prefix $newPackage --no-audit --no-fund $archive
   CheckExit "Install exactly one RC"

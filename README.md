@@ -4,7 +4,7 @@
 > **1.0.1 is the only current stable release target.** The earlier 1.0.0 package was withdrawn and must not be installed. Existing Beta installations should remain unchanged until the audited Beta.41 → 1.0.1 migration is approved.
 
 > [!NOTE]
-> **1.0.1 release audit (2026-10-19).** 1.0.1-rc.0 is under final review and is not an approved stable release yet. Production rollout remains 0%.
+> **Vibe Monitor 1.0.1 (2026-10-19).** This repository contains the reviewed stable 1.0.1 source. Production rollout remains controlled by the signed release manifest.
 
 **AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 

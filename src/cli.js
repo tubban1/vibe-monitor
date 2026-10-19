@@ -204,7 +204,12 @@ if (command === "install") {
     lifecycle.mark("started");
     try {
       const result=await installOpenClientProduct({
-        agents:selectedAgents(),local:!stableReleaseUsesManagedRuntime(),cliPath:filename,
+        agents:selectedAgents(),
+        local:(!stableReleaseUsesManagedRuntime())||
+          (process.env.VIBE_MONITOR_TEST_SOURCE_INSTALL==="1"&&
+           typeof process.env.VIBE_MONITOR_TEST_SECRET_DIR==="string"&&
+           process.env.VIBE_MONITOR_TEST_SECRET_DIR.length>0),
+        cliPath:filename,
         migrateBeta:args.includes("--migrate-beta"),
         onStage:stage=>lifecycle.mark(stage)
       });
