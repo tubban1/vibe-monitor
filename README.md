@@ -3,6 +3,9 @@
 > [!WARNING]
 > **Release hold — v1.0.0 withdrawn (2026-10-18).** Do not install or upgrade to \`@vibe-monitor/setup@1.0.0\`. The stable release failed a Beta-vs-stable data/upgrade-contract parity review. The GitHub release is hidden and future stable publishing is blocked. npm registry withdrawal is pending owner-authenticated action; the package may still be installable until npm is updated. **Existing Beta installations and their \`events\` history remain supported and unchanged.** No replacement stable version is approved.
 
+> [!NOTE]
+> **1.0.1 release audit (2026-10-19).** The 1.0.1-rc.0 client source is under release review, **not published as an approved stable 1.0.1 release**. The signed production auto-update feed, legacy Beta handoff and website telemetry controls have not passed final release gates. Do not install or upgrade to 1.0.1 until the verified release announcement; existing Beta users should keep their current installation.
+
 **AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 
 **AI ships code fast. It can build spaghetti code even faster. Vibe Monitor helps your coding agent spot architectural trouble before it gets expensive.**
