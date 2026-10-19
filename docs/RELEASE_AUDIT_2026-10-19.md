@@ -37,3 +37,14 @@ Coverage exists for the three detected items under the same live strategy, but n
 - Explicit safe handoff for unsupported Beta install types, website telemetry-control verification, release CI/source privacy review, and final human GO before npm publication.
 
 No current Mac or Windows installations, legacy credentials, Cloudflare deployment, Neon schema or production cursors were modified in this audit.
+
+## Release sprint follow-up (2026-10-19)
+
+- Public client now polls for signed release updates shortly after startup and hourly for long-lived MCP processes. Timers do not keep the process alive; signer gate, staged activation, quarantine and failure backoff remain intact.
+- An offline signing helper in scripts/sign-stable-update-manifest.mjs signs reviewed local .tgz files with a separately held owner-readable Ed25519 private key. It computes SHA-256, self-verifies and cannot overwrite a signed manifest. The helper and private key are excluded from published client packages.
+- Public client 58/58 regression tests PASS; client build PASS.
+- Existing PRIVATE Beta UAT, tested with isolated synthetic fixtures: 12/12 signed manifest, Beta handoff and migration gateway tests PASS. No private Beta source or credentials were copied to the public repository.
+- Cloudflare: production vibe-monitor-gateway and separate vibe-monitor-free-uat / vibe-monitor-migration-uat Workers exist.
+- Neon stable release_control row: disabled, 0% rollout, no artifact/version. Active Function does not advertise FREE_UPDATE_SIGNING_ENABLED or FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM. Production OTA remains NO-GO.
+- No production key generated; no Cloudflare/Neon deployment, rollout enablement, npm publish, or user installation modified in this sprint.
+- Windows Computer MCP returns Session terminated; new Windows-native upgrade is NOT VERIFIED.

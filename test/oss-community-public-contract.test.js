@@ -10,7 +10,7 @@ import {readBoundedUpdateArtifact} from "../src/update.js";
 import {buildAgentResult,applyMonitoringPolicy,initializeMcpTelemetry,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
 import {detectorRuleId,monitorFamilyForDetector} from "../src/rule-identity.js";
 import {POLICY_V2_FAMILIES} from "../src/decision-policy.js";
-import {updateStatus,compareVersions,shouldAutoStageUpdate,scheduleAutomaticUpdate,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM} from "../src/update.js";
+import {updateStatus,compareVersions,shouldAutoStageUpdate,scheduleAutomaticUpdate,AUTO_UPDATE_RECHECK_MS,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM} from "../src/update.js";
 import {CLIENT_VERSION} from "../src/constants.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
@@ -530,6 +530,7 @@ test("Direct MCP boot initializes Free telemetry ON while preserving an existing
 });
 
 test("Signed automatic upgrade handles pre-1.0 Beta to 1.0.0 and future stable semver ordering",()=>{
+ assert.equal(AUTO_UPDATE_RECHECK_MS,3600000,"long-lived MCP must have a bounded, nonblocking update recheck");
  assert.equal(compareVersions("0.3.0-beta.41","1.0.0"),-1);
  assert.equal(compareVersions("0.9.9","1.0.0"),-1);
  assert.equal(compareVersions("1.0.0","1.0.1"),-1);

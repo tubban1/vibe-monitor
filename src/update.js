@@ -153,6 +153,9 @@ const MAX_UPDATE_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_UPDATE_STREAM_CHUNKS = 4096;
 const UPDATE_LOCK_STALE_MS = 30 * 60 * 1000;
 let autoUpdateScheduled = false;
+// Hourly, non-blocking rechecks ensure long-lived MCP sessions eventually
+// discover releases; avoid per-request polling and never keep a process alive.
+export const AUTO_UPDATE_RECHECK_MS = 60 * 60 * 1000;
 
 export function updatesRoot() {
   return path.join(vibeHome(), "updates");
@@ -720,7 +723,9 @@ export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
       !entry || !fs.existsSync(entry)) return false;
 
   autoUpdateScheduled = true;
-  const timer = setTimeout(async () => {
+  // Poll once at startup and hourly thereafter, even after a transient
+  // network failure. Each pass has a single in-flight check.
+  const poll = async () => {
     try {
       const status = await updateStatus({ refresh: false });
       if (!signedPublic) observeAvailableUpdate((await fetchRemotePolicy({ force: false }))?.update || {});
@@ -735,9 +740,13 @@ export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
       const code = failureCode(error);
       if (code === "update_stage_in_progress" || code === "update_version_quarantined") return;
       // Staging records its own failure state; keep the active version intact.
+    } finally {
+      const next = setTimeout(poll, AUTO_UPDATE_RECHECK_MS);
+      next.unref?.();
     }
-  }, Math.max(0, delayMs));
-  timer.unref?.();
+  };
+  const first = setTimeout(poll, Math.max(0, delayMs));
+  first.unref?.();
   return true;
 }
 
