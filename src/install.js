@@ -10,7 +10,7 @@ import { migrateProjectStateTree, securityStatus, verifyCredentialStore } from "
 import { setTelemetryEnabled, initializeFreeTelemetry } from "./telemetry.js";
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
-import {verifiedBetaHandoffInstalled,verifyAndRecordActiveBetaHandoff} from "./beta-stable-handoff.js";
+import {verifiedBetaHandoffInstalled,verifyAndRecordActiveBetaHandoff,migrateRegisteredBetaToStable} from "./beta-stable-handoff.js";
 import { resolveInstallEndpoint } from "./install-network.js";
 import { getOrCreateDeviceIdentity, deviceStatus } from "./device.js";
 import { BUNDLED_NODE_VERSION, getPlatformAdapter, hardwareArch, nodeDistributionSpec } from "./platform.js";
@@ -651,11 +651,16 @@ export function detectUnmigratedBetaInstallation(){
   return null;
 }
 
-export async function installOpenClientProduct({agents,local=!stableReleaseUsesManagedRuntime(),cliPath,onStage=()=>{}}={}){
+export async function installOpenClientProduct({agents,local=!stableReleaseUsesManagedRuntime(),cliPath,onStage=()=>{},migrateBeta=false}={}){
   if(local&&(typeof cliPath!=="string"||!cliPath))
     throw new Error("community_local_entry_required");
   const blocked=detectUnmigratedBetaInstallation();
-  if(blocked&&!(await verifyAndRecordActiveBetaHandoff()))throw new Error(blocked);
+  if(blocked){
+    const authorized=migrateBeta
+      ? await migrateRegisteredBetaToStable()
+      : await verifyAndRecordActiveBetaHandoff();
+    if(!authorized)throw new Error(blocked);
+  }
   const runtime=await installRuntime({local,cliPath});
   onStage("runtime_installed");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});
@@ -667,7 +672,7 @@ export async function installOpenClientProduct({agents,local=!stableReleaseUsesM
       serviceEnabled:telemetry.enabled===true},
     setup,security:securityStatus(),
     telemetry:{...telemetry,requiredDuringPrivateBeta:false,
-      telemetryRequiredForFree:true,analysisStopsWhenDisabled:true,defaultEnabled:true},
+      telemetryRequiredForFree:true,analysisStopsWhenDisabled:true,defaultEnabled:false},
     next:["Restart your coding agent if necessary.",
       "Open a project and ask for a local architecture review.",
       "Product telemetry settings are managed through the website; Free analysis follows the enabled service state.",

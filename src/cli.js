@@ -182,9 +182,10 @@ const changesInstalledRuntimeOrAgents=command==="install"||command==="uninstall"
   (command==="update"&&["stage","activate"].includes(args[1]));
 if(isOpenClientDistribution()&&changesInstalledRuntimeOrAgents){
   const betaBlock=detectUnmigratedBetaInstallation();
-  if(betaBlock&&!(command==="install"&&await verifyAndRecordActiveBetaHandoff())){
+  const explicitMigration=command==="install"&&args.includes("--migrate-beta");
+  if(betaBlock&&!explicitMigration&&!(await verifyAndRecordActiveBetaHandoff())){
     if(json)print({installed:false,errorCode:betaBlock});
-    console.error("Existing Beta installation preserved. Verified Cloud identity migration is required before upgrading; Beta remains unchanged.");
+    console.error("Existing Beta installation preserved. Re-run install with --migrate-beta to authorize the verified handoff.");
     process.exit(2);
   }
 }
@@ -204,6 +205,7 @@ if (command === "install") {
     try {
       const result=await installOpenClientProduct({
         agents:selectedAgents(),local:!stableReleaseUsesManagedRuntime(),cliPath:filename,
+        migrateBeta:args.includes("--migrate-beta"),
         onStage:stage=>lifecycle.mark(stage)
       });
       if(args.includes("--accept-telemetry")){
@@ -621,7 +623,7 @@ if (command === "install") {
     "Vibe Monitor " + CLIENT_VERSION + (isOpenClientDistribution() ? "" : " private beta"),
     "",
     "Usage:",
-    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
+    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--migrate-beta] [--accept-telemetry] [--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
     "  vibe-monitor session-start [path] [--json]",
     "  vibe-monitor checkpoint [path] [--json]",
     "  vibe-monitor status [path] [--json]",
