@@ -1,10 +1,10 @@
 # Vibe Monitor
 
 > [!WARNING]
-> **1.0.1 is the only current stable release target.** The earlier 1.0.0 package was withdrawn and must not be installed. Existing Beta.41 installations upgrade directly to 1.0.1 through the verified migration flow; no intermediate Beta is used.
+> **1.0.2 release candidate.** The published stable remains 1.0.1 until Trusted Publishing completes. Beta.41 migrations use the verified direct-to-stable bridge.
 
 > [!NOTE]
-> **Vibe Monitor 1.0.1 (2026-10-19).** This repository contains the reviewed stable 1.0.1 source. Production rollout remains controlled by the signed release manifest.
+> **1.0.2 candidate (2026-10-19).** Local lifecycle diagnostics and consent changes are being verified. The older 1.0.1 npm artifact cannot be overwritten.
 
 **AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 
@@ -39,7 +39,9 @@ Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
 ## Installation
 
-The stable package is @vibe-monitor/setup@1.0.1. New installs use npx @vibe-monitor/setup@1.0.1 install --accept-telemetry. Existing Beta.41 users use the same package with install --migrate-beta --accept-telemetry; no intermediate Beta release is required.
+The reviewed candidate package identifier is @vibe-monitor/setup@1.0.2 (NOT YET PUBLISHED). Until it is released with provenance, npm latest remains the immutable 1.0.1 package. This candidate must not be installed from an unofficial registry.
+
+The stable package is @vibe-monitor/setup@1.0.1. The published 1.0.1 package requires `--accept-telemetry`. A subsequent patch is being prepared to enable basic telemetry by default on fresh installs, with `--no-telemetry` available and prior opt-outs preserved. Existing Beta.41 users can use the published package with install --migrate-beta --accept-telemetry; no intermediate Beta release is required.
 
 ### Architecture policies
 
@@ -47,7 +49,7 @@ The client scans source locally and accepts signed architecture-scoring and guid
 
 ### Product telemetry
 
-Telemetry collects bounded, pseudonymous product usage, architecture signals and outcome events; it never sends source code, file paths, prompts, project names or credentials. Collection defaults to on at installation. `vibe-monitor telemetry status` and `vibe-monitor telemetry inspect` remain read-only diagnostics. Changing telemetry via CLI (`on`, `off`, or `intelligence on/off`) is disabled; the intended control surface is the website. Until the website has an authenticated control path, this interface is not yet fully operational.
+Telemetry collects bounded pseudonymous product and architecture events, not source code, paths, prompts or credentials. Starting with 1.0.2, first installs default ON with disclosed --no-telemetry opt-out, and local telemetry off/on is available. Opt-out survives reinstalls and pauses Free analysis. Website device-level settings are not yet available.
 
 Product events are uploaded separately through `POST /free/telemetry` only when the production gateway and Neon intake are enabled. This intake has independent rate-limiting, bounded payload validation and an origin shared secret; a successful policy fetch does not imply telemetry acceptance. Unsigned or unavailable Cloud policy falls back to the minimal local rules.
 

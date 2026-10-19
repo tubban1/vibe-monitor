@@ -588,7 +588,8 @@ export async function installRuntimeVersion({
 export async function installRuntime({
   local = false,
   cliPath,
-  packageSpec = null
+  packageSpec = null,
+  onStage = () => {}
 } = {}) {
   ensureDir(runtimeRoot());
   let record;
@@ -610,12 +611,16 @@ export async function installRuntime({
     };
     record = { schemaVersion: 1, type: "local", version: CLIENT_VERSION, entry };
   } else {
+    await onStage("node_runtime_check");
     nodeRuntime = await ensureBundledNode();
+    onStage("node_runtime_ready");
+    await onStage("npm_runtime_install_started");
     const installed = await installRuntimeVersion({
       version: CLIENT_VERSION,
       packageSpec: packageSpec ?? verifiedPackageTarballUrl(CLIENT_VERSION),
       nodeRuntime
     });
+    onStage("npm_runtime_verified");
     entry = installed.entry;
     record = { schemaVersion: 1, type: "version", version: CLIENT_VERSION };
   }
@@ -625,6 +630,7 @@ export async function installRuntime({
   }
   writeRuntimePointer("current", record);
   const launcher = ensureStableLauncher(nodeRuntime.binary);
+  onStage("launcher_configured");
 
   return {
     launcher,
@@ -654,6 +660,7 @@ export function detectUnmigratedBetaInstallation(){
 export async function installOpenClientProduct({agents,local=!stableReleaseUsesManagedRuntime(),cliPath,onStage=()=>{},migrateBeta=false}={}){
   if(local&&(typeof cliPath!=="string"||!cliPath))
     throw new Error("community_local_entry_required");
+  onStage("migration_preflight");
   const blocked=detectUnmigratedBetaInstallation();
   if(blocked){
     const authorized=migrateBeta
@@ -661,11 +668,14 @@ export async function installOpenClientProduct({agents,local=!stableReleaseUsesM
       : await verifyAndRecordActiveBetaHandoff();
     if(!authorized)throw new Error(blocked);
   }
-  const runtime=await installRuntime({local,cliPath});
+  await onStage("runtime_install_started");
+  const runtime=await installRuntime({local,cliPath,onStage});
   onStage("runtime_installed");
+  onStage("mcp_configuration_started");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});
   onStage("mcp_configured");
   const telemetry=initializeFreeTelemetry();
+  onStage("telemetry_initialized");
   return {
     installed:true,version:CLIENT_VERSION,distribution:"open-client",
     runtime,activation:{registered:false,reusedExisting:false,

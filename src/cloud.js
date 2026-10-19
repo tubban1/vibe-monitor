@@ -554,6 +554,16 @@ export async function reportLifecycleEvent(event, details = {}) {
   } catch {
     return { queued: false, delivered: false, reason: "queue_unavailable" };
   }
+  // The single public client uses anonymous bounded telemetry, never a Beta
+  // installation token. A rejected/offline batch stays queued for later retry.
+  if (isOpenClientDistribution()) {
+    const result = await syncFreeTelemetry({force:true});
+    // A successful batch may only contain older FIFO entries. Never claim
+    // delivery of this event unless the durable backlog is fully ACKed.
+    const pending = (Number(result.remaining)||0)>0 || Boolean(result.reason);
+    return {queued:pending,delivered:!pending,
+      ...(result.reason ? {reason:result.reason} : {})};
+  }
   const client = loadCloudClient();
   if (!client?.baseUrl || !client?.token) {
     return { queued: true, delivered: false, reason: "cloud_not_registered" };
