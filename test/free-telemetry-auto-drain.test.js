@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createFreeTelemetryDrain, syncFreeTelemetry, freeSyncBackoffMs } from "../src/cloud.js";
-import { enqueueActivityTelemetry, initializeFreeTelemetry, telemetryStatus } from "../src/telemetry.js";
+import { enqueueActivityTelemetry, initializeFreeTelemetry, setTelemetryEnabled, telemetryStatus } from "../src/telemetry.js";
 
 function isolatedHome(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-free-auto-drain-"));
@@ -17,7 +17,8 @@ function isolatedHome(t) {
     keys.forEach((k,i)=>{if(originals[i]===undefined)delete process.env[k];else process.env[k]=originals[i]});
     fs.rmSync(root,{recursive:true,force:true});
   });
-  assert.equal(initializeFreeTelemetry().enabled,true);
+  assert.equal(initializeFreeTelemetry().enabled,false);
+  assert.equal(setTelemetryEnabled(true).enabled,true);
 }
 const tick=()=>new Promise(resolve=>setTimeout(resolve,20));
 async function until(fn,ms=8000) {

@@ -26,12 +26,17 @@ if "https://vibe.fde.fan" not in readme:
     errors.append("official_website_missing")
 manifest=json.loads(require("package.json"))
 if manifest.get("private") is False:
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", manifest.get("version","")):
+    version=manifest.get("version","")
+    stable=bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",version))
+    candidate=bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+",version))
+    if not stable and not candidate:
         errors.append("stable_package_semver_invalid")
     if manifest.get("name") != "@vibe-monitor/setup" or manifest.get("license") != "Apache-2.0":
         errors.append("stable_package_identity_invalid")
-    if "@vibe-monitor/setup@" + manifest.get("version","") not in readme:
+    if stable and "@vibe-monitor/setup@" + version not in readme:
         errors.append("stable_install_instructions_missing")
+    if candidate and (version not in readme or "not published" not in readme.lower()):
+        errors.append("release_candidate_status_disclosure_missing")
 else:
     client_source_disclosed = re.search(r"\bclient[\s-]+source\b", readme, re.IGNORECASE)
     unreleased_disclosed = re.search(

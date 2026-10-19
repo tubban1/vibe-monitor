@@ -1,20 +1,20 @@
 # Telemetry & Privacy Contract v4
 
-Status: Production policy and telemetry intake verified; npm stable 1.0.0 not yet published
+Status: Production policy and telemetry intake verified; npm stable 1.0.1 not yet published
 Date: 2026-10-18
 
 ## At a glance
 
 Vibe Monitor analyzes source code locally. The unified client collects bounded product-operation, architectural, usage, performance and outcome signals. Default telemetry does **not** upload source code, diffs, prompts, secrets, filenames, repository names or raw project paths. The data includes stable installation IDs and pseudonymous project/finding identifiers; linkable pseudonyms may still count as personal data. `vibe-monitor telemetry status` and `vibe-monitor telemetry inspect` are read-only ways to check what is queued.
 
-For the upcoming stable 1.0.0 client, telemetry is enabled by default at installation and is required for architecture analysis. CLI mutation commands are intentionally disabled. **An authenticated website control for an individual installation is not yet available.** Do not claim that per-user website opt-out is available; stopping use or uninstalling the client stops new collection, but does not erase previously received records. The official stable package is not yet published.
+For the upcoming stable 1.0.1 client, telemetry is enabled by default at installation and is required for architecture analysis. CLI mutation commands are intentionally disabled. **An authenticated website control for an individual installation is not yet available.** Do not claim that per-user website opt-out is available; stopping use or uninstalling the client stops new collection, but does not erase previously received records. The official stable package is not yet published.
 
 ## Single client, separate policy and telemetry interfaces
 
 - `GET /free/policy`: live Cloud-to-client declarative architecture policy, signed with Ed25519 and verified against a pinned client public key. `community` and `free` are internal compatibility identifiers, **not** distinct client products.
 - `POST /free/telemetry`: live client-to-Cloud product telemetry, rate-limited by Cloudflare, validated again in Neon and previously persisted in the now-obsolete `public.telemetry_events` table. The replacement under QA will store sanitized events in the existing `public.events` table while retaining independent Beta `/events` authentication. No replacement package has been published.
 
-Both production interfaces passed live checks on 2026-10-18, including one synthetic database write subsequently removed. Live endpoint availability does not itself mean the npm 1.0.0 package has been published.
+Both production interfaces passed live checks on 2026-10-18, including one synthetic database write subsequently removed. Live endpoint availability does not itself mean the npm 1.0.1 package has been published.
 
 ## Storage and privacy limits
 

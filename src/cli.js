@@ -12,7 +12,8 @@ import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setu
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
 import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
-import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation } from "./install.js";
+import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation, stableReleaseUsesManagedRuntime } from "./install.js";
+import {verifyAndRecordActiveBetaHandoff} from "./beta-stable-handoff.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from "./update.js";
 import { inspectProjectRef, listProjects } from "./projects.js";
@@ -181,9 +182,10 @@ const changesInstalledRuntimeOrAgents=command==="install"||command==="uninstall"
   (command==="update"&&["stage","activate"].includes(args[1]));
 if(isOpenClientDistribution()&&changesInstalledRuntimeOrAgents){
   const betaBlock=detectUnmigratedBetaInstallation();
-  if(betaBlock){
+  const explicitMigration=command==="install"&&args.includes("--migrate-beta");
+  if(betaBlock&&!explicitMigration&&!(await verifyAndRecordActiveBetaHandoff())){
     if(json)print({installed:false,errorCode:betaBlock});
-    console.error("Existing Beta installation preserved. Verified Cloud identity migration is required before upgrading; Beta remains unchanged.");
+    console.error("Existing Beta installation preserved. Re-run install with --migrate-beta to authorize the verified handoff.");
     process.exit(2);
   }
 }
@@ -193,14 +195,29 @@ if (command === "install") {
       console.error("Free architecture analysis requires product-improvement telemetry. Installation cancelled. Telemetry preferences are managed on the website.");
       process.exit(2);
     }
-    console.error("Free architecture analysis requires product-improvement telemetry, including derived architecture patterns, technical categories, recommendations and reported outcomes. No raw source, prompts, paths or notes. Run telemetry inspect to review collected events; telemetry preferences are managed on the website.");
+    console.error("Free architecture analysis requires product-improvement telemetry. No raw source, prompts or paths. Use --accept-telemetry to consent; preferences remain manageable after installation.");
+    if(!args.includes("--accept-telemetry") && !telemetryStatus().enabled){
+      if(json)print({installed:false,errorCode:"telemetry_policy_consent_required",nextAction:"Retry with --accept-telemetry after reviewing the privacy notice."});
+      process.exit(2);
+    }
     const lifecycle=createLocalInstallLifecycle();
     lifecycle.mark("started");
     try {
       const result=await installOpenClientProduct({
-        agents:selectedAgents(),local:true,cliPath:filename,
+        agents:selectedAgents(),
+        local:(!stableReleaseUsesManagedRuntime())||
+          (process.env.VIBE_MONITOR_TEST_SOURCE_INSTALL==="1"&&
+           typeof process.env.VIBE_MONITOR_TEST_SECRET_DIR==="string"&&
+           process.env.VIBE_MONITOR_TEST_SECRET_DIR.length>0),
+        cliPath:filename,
+        migrateBeta:args.includes("--migrate-beta"),
         onStage:stage=>lifecycle.mark(stage)
       });
+      if(args.includes("--accept-telemetry")){
+        const telemetry=setTelemetryEnabled(true);
+        result.telemetry={...result.telemetry,...telemetry,defaultEnabled:false};
+        result.activation.serviceEnabled=telemetry.enabled===true;
+      }
       lifecycle.mark("completed");
       result.lifecycle=lifecycle.summary();
       if(json)print(result);else printInstallWelcome(result);
@@ -531,7 +548,7 @@ if (command === "install") {
     console.error("Vibe Monitor Private Beta requires telemetry. Setup cancelled.");
     process.exit(2);
   }
-  const telemetryDefaultOn = true;
+  const telemetryDefaultOn = !openClient;
   const local = args.includes("--local");
   const installedRuntime = local ? null : installStatus();
   // Reconfigure installed coding agents against the stable, rollback-capable
@@ -540,6 +557,10 @@ if (command === "install") {
     ? installedRuntime.launcher : undefined;
   if (openClient && args.includes("--no-telemetry")) {
     console.error("Free analysis requires telemetry. Setup cancelled before modifying Agent settings.");
+    process.exit(2);
+  }
+  if(openClient && !dryRun && !args.includes("--accept-telemetry") && !telemetryStatus().enabled){
+    if(json)print({installed:false,errorCode:"telemetry_policy_consent_required",nextAction:"Run setup with --accept-telemetry after reviewing the privacy notice."});
     process.exit(2);
   }
   const setup = installSetup({
@@ -564,7 +585,7 @@ if (command === "install") {
     const migration = migrateProjectStateTree();
     if (openClient) console.error("Free product-improvement telemetry is required for Free analysis. telemetry off stops both collection and analysis; telemetry on restores service. Anonymous Cloud intake is not released.");
     const telemetry = openClient
-      ? (args.includes("--no-telemetry") ? setTelemetryEnabled(false) : initializeFreeTelemetry())
+      ? (args.includes("--accept-telemetry") ? setTelemetryEnabled(true) : initializeFreeTelemetry())
       : setTelemetryEnabled(telemetryDefaultOn);
     const intelligence = openClient ? {} : await configureIntelligenceConsent();
     print({
@@ -607,7 +628,7 @@ if (command === "install") {
     "Vibe Monitor " + CLIENT_VERSION + (isOpenClientDistribution() ? "" : " private beta"),
     "",
     "Usage:",
-    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
+    "  vibe-monitor install " + (isOpenClientDistribution() ? "[--migrate-beta] [--accept-telemetry] [--codex|--claude|--cursor|--antigravity|--trae]" : "[--invite CODE] [--url URL] [--codex|--claude|--cursor|--antigravity|--trae] [--debug]"),
     "  vibe-monitor session-start [path] [--json]",
     "  vibe-monitor checkpoint [path] [--json]",
     "  vibe-monitor status [path] [--json]",

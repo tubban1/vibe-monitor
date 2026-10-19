@@ -5,9 +5,13 @@ import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
-import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
+import {fetchVerifiedNode,nodeDownloadSources,stableReleaseUsesManagedRuntime} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {buildAgentResult,createMcpProjectContext} from "../src/mcp.js";
+import {buildAgentResult,applyMonitoringPolicy,initializeMcpTelemetry,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
+import {detectorRuleId,monitorFamilyForDetector} from "../src/rule-identity.js";
+import {POLICY_V2_FAMILIES} from "../src/decision-policy.js";
+import {updateStatus,compareVersions,shouldAutoStageUpdate,scheduleAutomaticUpdate,AUTO_UPDATE_RECHECK_MS,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM} from "../src/update.js";
+import {CLIENT_VERSION} from "../src/constants.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -32,7 +36,7 @@ test("Unified open client has Apache-2.0 license, reproducible deps, and safe re
  assert.equal(pkg.license,"Apache-2.0");
  assert.equal(typeof pkg.private,"boolean");
  if(pkg.private)assert.match(pkg.version,/-beta\./,"unpublished source preview must be labeled prerelease");
- else assert.match(pkg.version,/^\d+\.\d+\.\d+$/,"publishable client must have stable semver");
+ else assert.match(pkg.version,/^\d+\.\d+\.\d+(?:-rc\.\d+)?$/,"publishable client must have stable or release-candidate semver");
  assert.equal(pkg.name,"@vibe-monitor/setup");
  assert.equal(pkg.version,lock.packages[""].version);
  assert.deepEqual(pkg.dependencies,lock.packages[""].dependencies);
@@ -126,7 +130,7 @@ test("independent signed stable update manifest accepts only pinned release meta
  const sign=pl=>({keyId:FREE_UPDATE_KEY_ID,payload:pl,
   signature:crypto.sign(null,Buffer.from(JSON.stringify(pl)),keys.privateKey).toString("base64url")});
  const verify=(e)=>verifyFreeUpdateEnvelope(e,{keys:{[FREE_UPDATE_KEY_ID]:keys.publicKey},now:()=>now});
- assert.equal(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,null);
+ assert.match(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,/^-----BEGIN PUBLIC KEY-----/);
  assert.equal(verifyFreeUpdateEnvelope(sign(payload),{now:()=>now}),null);
  assert.equal(verify(sign(payload)).version,"1.0.0");
  const forged=sign(payload);forged.payload={...payload,artifact:{...payload.artifact,sha256:"b".repeat(64)}};
@@ -287,7 +291,8 @@ test("Free explicit outcome action and verification queue stable anonymous links
  process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(root,"secrets");
  t.after(()=>{keys.forEach((k,i)=>{if(prior[i]===undefined)delete process.env[k];else process.env[k]=prior[i];});
    fs.rmSync(root,{recursive:true,force:true});});
- assert.equal(initializeFreeTelemetry().enabled,true);
+ assert.equal(initializeFreeTelemetry().enabled,false);
+ assert.equal(setTelemetryEnabled(true).enabled,true);
  const record={outcomeId:crypto.randomUUID(),findingId:"VM-SECRET123",family:"code-structure",
   baseline:{stage:"S4",evidenceVersion:7},action:{disposition:"applied",actor:"user",changeRef:"private-sha"},
   verification:{verdict:"confirmed",evidenceType:"independent_review",actor:"user"},
@@ -328,7 +333,8 @@ test("Free tiny offline queue expires at seven days and opt-out blocks later eve
  fs.mkdirSync(legacy,{recursive:true});
  const state='{"enabled":true,"consentVersion":"private-beta-v4"}';
  fs.writeFileSync(path.join(legacy,"config.json"),state);
- assert.equal(initializeFreeTelemetry().enabled,true);
+ assert.equal(initializeFreeTelemetry().enabled,false);
+ assert.equal(setTelemetryEnabled(true).enabled,true);
  const file=path.join(root,"free-telemetry","queue.jsonl");
  const stale={eventId:crypto.randomUUID(),at:new Date(Date.now()-9*86400_000).toISOString(),event:"checkpoint"};
  const fresh={eventId:crypto.randomUUID(),at:new Date().toISOString(),event:"checkpoint"};
@@ -346,7 +352,7 @@ test("Free tiny offline queue expires at seven days and opt-out blocks later eve
  assert.equal(fs.readFileSync(path.join(legacy,"config.json"),"utf8"),state);
 });
 
-test("Free on-by-default queue is separate from old Beta, bounded and opt-out purges",{skip:!staged?"OSS-only client test":false},t=>{
+test("Free explicit-consent queue is separate from old Beta, bounded and opt-out purges",{skip:!staged?"OSS-only client test":false},t=>{
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-free-telemetry-v4-"));
  const vars=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"];
  const prior=vars.map(k=>process.env[k]);
@@ -360,8 +366,9 @@ test("Free on-by-default queue is separate from old Beta, bounded and opt-out pu
  fs.mkdirSync(betaDir,{recursive:true});
  const old=JSON.stringify({enabled:true,consentVersion:"private-beta-v4"});
  fs.writeFileSync(path.join(betaDir,"config.json"),old);
- assert.equal(initializeFreeTelemetry().enabled,true);
- assert.equal(telemetryStatus().consentVersion,"free-v1");
+ assert.equal(initializeFreeTelemetry().enabled,false);
+ assert.equal(setTelemetryEnabled(true).enabled,true);
+ assert.equal(telemetryStatus().consentVersion,"telemetry-v1");
  for(let i=0;i<1500;i++)
   enqueueActivityTelemetry({event:"checkpoint",projectId:"test-project",agent:"codex",
    sessionId:crypto.randomUUID(),durationMs:i});
@@ -433,4 +440,151 @@ test("MCP concurrent explicit project selection ignores late older results",()=>
  context.confirm(second,{status:{assessmentAvailable:true},project:{root:"/qa/newer"}});
  context.confirm(first,{status:{assessmentAvailable:true},project:{root:"/qa/older"}});
  assert.equal(context.resolve().path,"/qa/newer");
+});
+
+test("Implicit MCP workspace rejects IDE install directory and unknown cwd",()=>{
+ assert.equal(isSafeImplicitProjectCwd("C:\\\\Users\\\\i95i\\\\AppData\\\\Local\\\\Programs\\\\antigravity"),false);
+ assert.equal(isSafeImplicitProjectCwd("C:\\\\Program Files\\\\Antigravity"),false);
+ assert.equal(isSafeImplicitProjectCwd("/a/nonexistent/project"),false);
+ const repo=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-implicit-git-"));
+ try {
+  fs.mkdirSync(path.join(repo,".git"));
+  assert.equal(isSafeImplicitProjectCwd(repo),true);
+  const selected=createMcpProjectContext(()=>repo);
+  assert.equal(selected.resolve().fallbackToHostCwd,true);
+  const explicit=selected.resolve(repo);
+  assert.equal(explicit.fallbackToHostCwd,false);
+  selected.confirm(explicit,{status:{assessmentAvailable:true},project:{root:repo}});
+  assert.equal(selected.resolve().fallbackToHostCwd,false);
+ } finally {fs.rmSync(repo,{recursive:true,force:true});}
+ const denied=projectPathRequiredPayload();
+ assert.equal(denied.status.assessmentAvailable,false);
+ assert.equal(denied.monitoring.reason,"project_path_required");
+ assert.notEqual(denied.status.findingCount,0);
+});
+
+test("Open client ignores orphaned private Beta runtime pointer without hiding live pointer",async()=>{
+ const prev=process.env.VIBE_MONITOR_HOME;
+ const home=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-orphan-pointer-"));
+ try {
+  process.env.VIBE_MONITOR_HOME=home;
+  const runtime=path.join(home,"runtime");
+  fs.mkdirSync(runtime,{recursive:true});
+  const pointer={schemaVersion:1,type:"version",version:"0.3.0-beta.26"};
+  fs.writeFileSync(path.join(runtime,"current.json"),JSON.stringify(pointer));
+  let status=await updateStatus({refresh:false});
+  assert.equal(status.currentVersion,CLIENT_VERSION,"stale Beta registration must not be reported as installed RC");
+  const bundle=path.join(runtime,"versions","0.3.0-beta.26","node_modules","@vibe-monitor","setup","dist","vibe-monitor.mjs");
+  fs.mkdirSync(path.dirname(bundle),{recursive:true});
+  fs.writeFileSync(bundle,"// test-only existing runtime");
+  status=await updateStatus({refresh:false});
+  assert.equal(status.currentVersion,"0.3.0-beta.26","existing managed runtime should still surface version mismatch");
+ } finally {
+  if(prev===undefined)delete process.env.VIBE_MONITOR_HOME;
+  else process.env.VIBE_MONITOR_HOME=prev;
+  fs.rmSync(home,{recursive:true,force:true});
+ }
+});
+
+test("Stable local ruleId is distinct from Cloud policy and data-contract respects api-contract mask",()=>{
+ for(const family of POLICY_V2_FAMILIES) assert.match(detectorRuleId(family), /^vm[.][a-z0-9.-]+[.]v1$/);
+ assert.equal(detectorRuleId("data-contract"),"vm.api-contract.encoded-id-contract.v1");
+ assert.equal(monitorFamilyForDetector("data-contract"),"api-contract");
+ assert.equal(detectorRuleId("future-unregistered"),null);
+ const raw={
+   project:{root:"/synthetic-playground"},
+   status:{assessmentAvailable:true},
+   findings:[
+    {id:"VM-A",family:"code-structure",stage:"S3",score:52,requiresAttention:true,signals:[]},
+    {id:"VM-B",family:"data-contract",stage:"S2",score:40,requiresAttention:false,signals:[]}
+   ],transitions:[],monitoring:{mode:"full"}
+ };
+ const enabled=applyMonitoringPolicy(raw,{enabledMonitors:{"api-contract":true}});
+ assert.equal(enabled.findings.length,2);
+ assert.equal(enabled.findings[0].ruleId,detectorRuleId("code-structure"));
+ assert.equal(enabled.findings[1].ruleId,"vm.api-contract.encoded-id-contract.v1");
+ assert.equal(enabled.status.findingCount,2);
+ const payload=buildAgentResult(enabled,{sessionStart:true});
+ assert.equal(payload.attentionFindings[0].ruleId,detectorRuleId("code-structure"));
+ const disabled=applyMonitoringPolicy(raw,{enabledMonitors:{"api-contract":false}});
+ assert.equal(disabled.findings.length,1,"Cloud api-contract monitor must mask specialized encoded ID detector");
+ assert.equal(disabled.status.findingCount,1);
+ assert.equal(raw.findings[0].ruleId,undefined,"raw finding must not be mutated by presentation mapping");
+});
+
+test("Direct MCP boot preserves telemetry OFF until explicit consent",()=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-mcp-telemetry-boot-"));
+ const vars=["VIBE_MONITOR_HOME","VIBE_MONITOR_TEST_SECRET_DIR"];
+ const prev=vars.map(x=>process.env[x]);
+ try{
+  process.env.VIBE_MONITOR_HOME=tmp;
+  process.env.VIBE_MONITOR_TEST_SECRET_DIR=path.join(tmp,"secrets");
+  assert.equal(fs.existsSync(path.join(tmp,"free-telemetry","config.json")),false);
+  const first=initializeMcpTelemetry();
+  assert.equal(first.enabled,false,"first MCP boot must remain OFF without consent");
+  assert.equal(fs.existsSync(path.join(tmp,"free-telemetry","config.json")),true);
+  assert.equal(initializeMcpTelemetry().enabled,false);
+  assert.equal(setTelemetryEnabled(true).enabled,true);
+  assert.equal(initializeMcpTelemetry().enabled,true,"explicit consent must survive restart");
+  assert.equal(setTelemetryEnabled(false).enabled,false);
+  assert.equal(initializeMcpTelemetry().enabled,false,"an explicit prior opt-out must remain off");
+ }finally{
+  vars.forEach((k,i)=>{if(prev[i]===undefined)delete process.env[k];else process.env[k]=prev[i];});
+  fs.rmSync(tmp,{recursive:true,force:true});
+ }
+});
+
+test("Signed automatic upgrade handles pre-1.0 Beta to 1.0.0 and future stable semver ordering",()=>{
+ assert.equal(AUTO_UPDATE_RECHECK_MS,3600000,"long-lived MCP must have a bounded, nonblocking update recheck");
+ assert.equal(compareVersions("0.3.0-beta.41","1.0.0"),-1);
+ assert.equal(compareVersions("0.9.9","1.0.0"),-1);
+ assert.equal(compareVersions("1.0.0","1.0.1"),-1);
+ assert.equal(compareVersions("1.0.1-rc.0","1.0.1"),-1);
+ assert.equal(compareVersions("1.0.1-rc.0","1.0.0"),1,
+  "RC 1.0.1-rc.0 is GREATER than 1.0.0; a downgrade must not be called OTA");
+ assert.equal(compareVersions("1.1.0","1.0.0"),1);
+ const manifest={source:"signed-free-update",updateEnabled:true,eligible:true,
+    available:true,artifactReady:true,latestVersion:"1.0.1",autoStage:false};
+ assert.equal(shouldAutoStageUpdate(manifest,{}, {signedPublic:true}),true);
+ assert.equal(shouldAutoStageUpdate({...manifest,eligible:false},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate({...manifest,source:"open-client"},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate({...manifest,available:false},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate({...manifest,artifactReady:false},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate(manifest,{quarantinedVersions:["1.0.1"]},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate(manifest,{lastFailureReason:"update_download_failed",
+    lastFailureAt:new Date().toISOString()},{signedPublic:true}),false);
+ // Pinned key alone cannot authorize a remote update without a signed manifest.
+ if (FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM===null)assert.equal(scheduleAutomaticUpdate(),false);
+});
+test("Stable publication is blocked when a signed public updater cannot operate",()=>{
+ const pkg=JSON.parse(fs.readFileSync(path.join(root,"package.json"),"utf8"));
+ const stableFormat=/^[0-9]+[.][0-9]+[.][0-9]+$/;
+ assert.equal(stableFormat.test("1.0.0"),true);
+ assert.equal(stableFormat.test("1.0.1"),true);
+ assert.equal(stableFormat.test("1.0.1-rc.0"),false);
+ assert.equal(stableFormat.test("1.0.0-rc.0"),false);
+ if (stableFormat.test(pkg.version)) {
+   assert.match(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,/^-----BEGIN PUBLIC KEY-----/,
+    "Do not publish stable 1.0.0 without a pinned update signer");
+ }
+});
+
+test("Stable official releases use managed immutable slots, never the npx ephemeral entry",()=>{
+ assert.equal(stableReleaseUsesManagedRuntime("0.3.0-beta.41"),false);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.1-rc.0"),false);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.0"),true);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.1"),true);
+ assert.equal(stableReleaseUsesManagedRuntime("2.0.0"),true);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.1-beta.0"),false);
+});
+
+test("Production OTA trust root is pinned independently of Cloud architecture policy",()=>{
+ const pem=FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM;
+ assert.match(pem,/^-----BEGIN PUBLIC KEY-----/);
+ const key=crypto.createPublicKey(pem);
+ assert.equal(key.asymmetricKeyType,"ed25519");
+ assert.equal(crypto.createHash("sha256").update(
+  key.export({format:"der",type:"spki"})).digest("hex"),
+  "955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2");
+ assert.notEqual(pem,COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM);
 });

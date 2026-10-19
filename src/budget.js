@@ -177,7 +177,9 @@ export function createMonitoringBudgetSession({ scanLimits = null } = {}) {
         sinceFull < fullScanMinMs
       ) {
         deferredCheckCount += 1;
-        memoryCached.lastCheckAt = now;
+        // A deferred attempt is not a successful checkpoint. Refreshing
+        // lastCheckAt here creates a second cooldown after the full-scan
+        // interval expires, delaying change detection even longer.
         return withMonitoring(
           cachedResult(memoryCached),
           "deferred",

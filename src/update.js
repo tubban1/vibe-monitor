@@ -15,6 +15,7 @@ import {
   ensureBundledNode,
   installRuntimeVersion,
   readRuntimePointer,
+  runtimeRecordEntry,
   runtimeVersionEntry,
   runtimeVersionRoot,
   writeRuntimePointer
@@ -26,7 +27,7 @@ import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 export const FREE_UPDATE_MANIFEST_URL="https://vibe-api.fde.fan/free/update-manifest";
 export const FREE_UPDATE_KEY_ID="free-update-ed25519-v1";
 export const FREE_UPDATE_NEXT_KEY_ID="free-update-ed25519-v2";
-export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM=null;
+export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAqyVComzhk1MeD77dSfr+ec86w7YSjxBSs3nA2NpktYU=\n-----END PUBLIC KEY-----\n";
 export const FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
 const stableVersion=/^\d+\.\d+\.\d+$/;
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
@@ -152,6 +153,9 @@ const MAX_UPDATE_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_UPDATE_STREAM_CHUNKS = 4096;
 const UPDATE_LOCK_STALE_MS = 30 * 60 * 1000;
 let autoUpdateScheduled = false;
+// Hourly, non-blocking rechecks ensure long-lived MCP sessions eventually
+// discover releases; avoid per-request polling and never keep a process alive.
+export const AUTO_UPDATE_RECHECK_MS = 60 * 60 * 1000;
 
 export function updatesRoot() {
   return path.join(vibeHome(), "updates");
@@ -281,7 +285,15 @@ export function compareVersions(a, b) {
 }
 
 function currentRuntimeVersion() {
-  return readRuntimePointer("current")?.version || CLIENT_VERSION;
+  const pointer = readRuntimePointer("current");
+  // A previous private-Beta runtime can leave current.json behind after its
+  // managed binaries were removed. An orphan pointer is not an installation.
+  // Never report the orphan Beta version as the current open-client package.
+  if (isOpenClientDistribution() && pointer) {
+    const entry = runtimeRecordEntry(pointer);
+    if (!entry || !fs.existsSync(entry)) return CLIENT_VERSION;
+  }
+  return pointer?.version || CLIENT_VERSION;
 }
 
 function failureCode(error) {
@@ -370,7 +382,7 @@ export async function updateStatus({ refresh = false } = {}) {
       channel:m?"stable":"unconfigured",updateEnabled:!!m,eligible,
       latestVersion:m?.version||null,minimumVersion:null,
       available:!!m&&eligible&&compareVersions(m.version,current)>0,
-      belowMinimum:false,critical:false,autoStage:false,autoActivate:"manual",
+      belowMinimum:false,critical:false,autoStage:!!m,autoActivate:m?"next-start":"disabled",
       artifactReady:!!m,lastCheckAt:state.lastCheckAt||null,lastStageAt:state.lastStageAt||null,
       lastRollbackAt:state.lastRollbackAt||null,lastRollbackReason:state.lastRollbackReason||null,
       lastFailureAt:state.lastFailureAt||null,lastFailureReason:state.lastFailureReason||null,
@@ -684,37 +696,57 @@ export function consumeUpdateNotice() {
   return candidate;
 }
 
-export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
-  if (isOpenClientDistribution()) return false;
-  if (autoUpdateScheduled || process.env.VIBE_MONITOR_UPDATE_PREFLIGHT === "1") return false;
+// Only a verified signed public manifest may authorize an automatic update.
+// Availability, eligibility, quarantine, transport and backoff remain separate
+// decisions. This helper is pure so release tests can exercise these gates.
+export function shouldAutoStageUpdate(status, state = {}, { signedPublic = false } = {}) {
+  return Boolean(
+    status?.updateEnabled === true &&
+    status?.eligible === true &&
+    status?.available === true &&
+    status?.artifactReady === true &&
+    (signedPublic ? status.source === "signed-free-update" : status.autoStage === true) &&
+    !(state.quarantinedVersions || []).includes(status.latestVersion) &&
+    !transientFailureBackoffActive(state)
+  );
+}
 
+export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
+  const signedPublic = isOpenClientDistribution();
+  // A stable pinned trust root is mandatory. Never query or stage unsigned
+  // executable artifacts, including when a legacy Beta registry is present.
+  if (signedPublic && !publicUpdateTrustReady()) return false;
+  if (autoUpdateScheduled || process.env.VIBE_MONITOR_UPDATE_PREFLIGHT === "1") return false;
   const current = readRuntimePointer("current");
-  if (!current || !["version", "legacy"].includes(current.type)) return false;
+  const entry = runtimeRecordEntry(current);
+  if (!current || !["version", "legacy"].includes(current.type) ||
+      !entry || !fs.existsSync(entry)) return false;
 
   autoUpdateScheduled = true;
-  const timer = setTimeout(async () => {
+  // Poll once at startup and hourly thereafter, even after a transient
+  // network failure. Each pass has a single in-flight check.
+  const poll = async () => {
     try {
       const status = await updateStatus({ refresh: false });
-      observeAvailableUpdate((await fetchRemotePolicy({ force: false }))?.update || {});
-      const state = readUpdateState();
-      if (
-        !status.updateEnabled ||
-        !status.eligible ||
-        !status.available ||
-        !status.autoStage ||
-        !status.artifactReady ||
-        state.quarantinedVersions?.includes(status.latestVersion) ||
-        transientFailureBackoffActive(state)
-      ) {
-        return;
+      if (!signedPublic) observeAvailableUpdate((await fetchRemotePolicy({ force: false }))?.update || {});
+      if (!shouldAutoStageUpdate(status, readUpdateState(), { signedPublic })) return;
+      const staged = await stageUpdate();
+      if (signedPublic && staged.staged && staged.activateOnNextStart !== true) {
+        // Atomic activation occurs in the stable launcher on the NEXT Agent
+        // restart. Never switch or interrupt an in-flight MCP session.
+        activateStagedUpdate();
       }
-      await stageUpdate();
     } catch (error) {
       const code = failureCode(error);
       if (code === "update_stage_in_progress" || code === "update_version_quarantined") return;
+      // Staging records its own failure state; keep the active version intact.
+    } finally {
+      const next = setTimeout(poll, AUTO_UPDATE_RECHECK_MS);
+      next.unref?.();
     }
-  }, Math.max(0, delayMs));
-  timer.unref?.();
+  };
+  const first = setTimeout(poll, Math.max(0, delayMs));
+  first.unref?.();
   return true;
 }
 

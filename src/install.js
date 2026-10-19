@@ -10,6 +10,7 @@ import { migrateProjectStateTree, securityStatus, verifyCredentialStore } from "
 import { setTelemetryEnabled, initializeFreeTelemetry } from "./telemetry.js";
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
+import {verifiedBetaHandoffInstalled,verifyAndRecordActiveBetaHandoff,migrateRegisteredBetaToStable} from "./beta-stable-handoff.js";
 import { resolveInstallEndpoint } from "./install-network.js";
 import { getOrCreateDeviceIdentity, deviceStatus } from "./device.js";
 import { BUNDLED_NODE_VERSION, getPlatformAdapter, hardwareArch, nodeDistributionSpec } from "./platform.js";
@@ -32,6 +33,12 @@ export function runtimeVersionRoot(version) {
 
 // Direct immutable npm tarball bypasses stale beta dist-tag and package-metadata
 // caches. npm still verifies HTTPS certificates and installs dependencies normally.
+// Stable 1.0.0+ must install into a managed, immutable version slot so the
+// signed updater can activate and roll back without relying on ephemeral npx.
+export function stableReleaseUsesManagedRuntime(version=CLIENT_VERSION) {
+  return /^[0-9]+[.][0-9]+[.][0-9]+$/.test(version);
+}
+
 export function verifiedPackageTarballUrl(version) {
   const value = String(version || "");
   if (!/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(value)) throw new Error("invalid_runtime_version");
@@ -581,7 +588,7 @@ export async function installRuntimeVersion({
 export async function installRuntime({
   local = false,
   cliPath,
-  packageSpec = verifiedPackageTarballUrl(CLIENT_VERSION)
+  packageSpec = null
 } = {}) {
   ensureDir(runtimeRoot());
   let record;
@@ -606,7 +613,7 @@ export async function installRuntime({
     nodeRuntime = await ensureBundledNode();
     const installed = await installRuntimeVersion({
       version: CLIENT_VERSION,
-      packageSpec,
+      packageSpec: packageSpec ?? verifiedPackageTarballUrl(CLIENT_VERSION),
       nodeRuntime
     });
     entry = installed.entry;
@@ -638,17 +645,23 @@ export function detectUnmigratedBetaInstallation(){
   // Open-client never reads/imports legacy Beta tokens. Registered Beta
   // Cloud metadata is the reliable signal; semver alone is ambiguous because
   // the audited open-client preview still shares the historical beta version.
-  if(fs.existsSync(path.join(vibeHome(),"cloud","client.json")))
+  if(fs.existsSync(path.join(vibeHome(),"cloud","client.json"))&&
+     !verifiedBetaHandoffInstalled())
     return "legacy_beta_upgrade_requires_verified_handoff";
   return null;
 }
 
-export async function installOpenClientProduct({agents,local=true,cliPath,onStage=()=>{}}={}){
-  if(!local||typeof cliPath!=="string"||!cliPath)
+export async function installOpenClientProduct({agents,local=!stableReleaseUsesManagedRuntime(),cliPath,onStage=()=>{},migrateBeta=false}={}){
+  if(local&&(typeof cliPath!=="string"||!cliPath))
     throw new Error("community_local_entry_required");
   const blocked=detectUnmigratedBetaInstallation();
-  if(blocked)throw new Error(blocked);
-  const runtime=await installRuntime({local:true,cliPath});
+  if(blocked){
+    const authorized=migrateBeta
+      ? await migrateRegisteredBetaToStable()
+      : await verifyAndRecordActiveBetaHandoff();
+    if(!authorized)throw new Error(blocked);
+  }
+  const runtime=await installRuntime({local,cliPath});
   onStage("runtime_installed");
   const setup=installSetup({agents,runtimeCommand:runtime.launcher});
   onStage("mcp_configured");
@@ -659,7 +672,7 @@ export async function installOpenClientProduct({agents,local=true,cliPath,onStag
       serviceEnabled:telemetry.enabled===true},
     setup,security:securityStatus(),
     telemetry:{...telemetry,requiredDuringPrivateBeta:false,
-      telemetryRequiredForFree:true,analysisStopsWhenDisabled:true,defaultEnabled:true},
+      telemetryRequiredForFree:true,analysisStopsWhenDisabled:true,defaultEnabled:false},
     next:["Restart your coding agent if necessary.",
       "Open a project and ask for a local architecture review.",
       "Product telemetry settings are managed through the website; Free analysis follows the enabled service state.",

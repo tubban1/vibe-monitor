@@ -1,7 +1,10 @@
 # Vibe Monitor
 
 > [!WARNING]
-> **Release hold — v1.0.0 withdrawn (2026-10-18).** Do not install or upgrade to \`@vibe-monitor/setup@1.0.0\`. The stable release failed a Beta-vs-stable data/upgrade-contract parity review. The GitHub release is hidden and future stable publishing is blocked. npm registry withdrawal is pending owner-authenticated action; the package may still be installable until npm is updated. **Existing Beta installations and their \`events\` history remain supported and unchanged.** No replacement stable version is approved.
+> **1.0.1 is the only current stable release target.** The earlier 1.0.0 package was withdrawn and must not be installed. Existing Beta.41 installations upgrade directly to 1.0.1 through the verified migration flow; no intermediate Beta is used.
+
+> [!NOTE]
+> **Vibe Monitor 1.0.1 (2026-10-19).** This repository contains the reviewed stable 1.0.1 source. Production rollout remains controlled by the signed release manifest.
 
 **AI 写代码很快，屎山也可能堆得很快。Vibe Monitor 帮你在失控前发现问题。**
 
@@ -34,9 +37,9 @@ Copy this into Cursor, Claude Code, Codex, Antigravity, or another agent:
 
 [Full Agent evaluation flow and report template →](docs/AGENT_EVALUATION.md)
 
-## Installation (stable release temporarily suspended)
+## Installation
 
-Vibe Monitor's 1.0.0 official distribution is suspended. **Do not run previously published \`npx @vibe-monitor/setup@1.0.0 install\` or use the \`latest\` tag.** No replacement stable version is approved. Existing Beta users should keep their current installation unchanged until a tested Beta-to-stable handoff is announced.
+The stable package is @vibe-monitor/setup@1.0.1. New installs use npx @vibe-monitor/setup@1.0.1 install --accept-telemetry. Existing Beta.41 users use the same package with install --migrate-beta --accept-telemetry; no intermediate Beta release is required.
 
 ### Architecture policies
 
@@ -48,7 +51,7 @@ Telemetry collects bounded, pseudonymous product usage, architecture signals and
 
 Product events are uploaded separately through `POST /free/telemetry` only when the production gateway and Neon intake are enabled. This intake has independent rate-limiting, bounded payload validation and an origin shared secret; a successful policy fetch does not imply telemetry acceptance. Unsigned or unavailable Cloud policy falls back to the minimal local rules.
 
-The signed Cloud strategy and telemetry intake were both verified live on 2026-10-18, including a synthetic write to the withdrawn 1.0.0 legacy `telemetry_events` table (subsequently removed). The replacement under development will write to the existing `public.events` table, without moving Beta data. The npm 1.0.0 package was published and then removed from the official npm registry; no replacement stable package is yet approved. Cloud telemetry records have no automatic TTL or scheduled purge; scoped legal erasure requires a separate auditable process. The database is in AWS Singapore. Linkable pseudonymous identifiers may qualify as personal data; privacy approval for public release is a separate step.
+The signed Cloud strategy and telemetry intake were verified live on 2026-10-18. The audited 1.0.1 path writes sanitized product events into the existing public.events model without moving Beta history. Cloud telemetry records have no automatic TTL or scheduled purge; scoped legal erasure requires a separate auditable process. The database is in AWS Singapore. Linkable pseudonymous identifiers may qualify as personal data; privacy approval for public release remains a separate gate.
 
 [Privacy & Data Practices](docs/governance/TELEMETRY_PRIVACY_V1.md)
 

@@ -392,10 +392,10 @@ function scrubQueuedArchitectureProfiles() {
 export function initializeFreeTelemetry() {
   if (!isOpenClientDistribution()) return telemetryStatus();
   const previous = safeJsonRead(configFile(), null);
-  // First install accepts the disclosed Free product-improvement contract.
-  // If stopped, Free analysis also stops; the user may restore both together.
-  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: true,
-    consentVersion: "free-v1", dataIntelligenceDecision: "included",
+  // First install does not silently enable telemetry.
+  // Explicit consent is required before Free architecture analysis starts.
+  if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: false,
+    consentVersion: null, dataIntelligenceDecision: null,
     updatedAt: new Date().toISOString() });
   if (readConfig().enabled) ensureIdentity();
   return telemetryStatus();
@@ -411,7 +411,7 @@ export function setTelemetryEnabled(enabled) {
       writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
         enabled: Boolean(enabled),
         ...(enabled ? {dataIntelligenceDecision:"included"} : {}),
-        consentVersion: "free-v1",
+        consentVersion: "telemetry-v1",
         updatedAt: new Date().toISOString() });
       if (!enabled) {
         // Opt-out clears every pending Free segment, not just the active file.
@@ -449,7 +449,7 @@ export function setDataIntelligenceEnabled(enabled) {
     if (enabled && !previous.enabled) throw new Error("telemetry_must_be_enabled");
     writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
       dataIntelligenceDecision: "included",
-      consentVersion: "free-v1", updatedAt: new Date().toISOString() });
+      consentVersion: "telemetry-v1", updatedAt: new Date().toISOString() });
     if (!enabled) scrubQueuedArchitectureProfiles();
     return telemetryStatus();
   }
