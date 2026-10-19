@@ -42,10 +42,14 @@ test("isolated old Beta -> 1.0.0 -> 1.0.1 activation, health fallback and rollba
    }));
   }
   function invoke(){
+   // Node cannot execute a .cmd directly on Windows. Invoke the existing
+   // stable launcher via the platform command shell only for this QA fixture.
    const res=spawnSync(launcher,["--version"],{
-    env:{...process.env},encoding:"utf8",timeout:15000
+    env:{...process.env},encoding:"utf8",timeout:15000,
+    shell:process.platform==="win32"
    });
-   assert.equal(res.status,0,"stable launcher must exit cleanly: "+res.stderr);
+   assert.equal(res.error,undefined,"launcher failed to start: "+res.error?.message);
+   assert.equal(res.status,0,"stable launcher must exit cleanly: "+(res.stderr||""));
    return res.stdout.trim();
   }
   const launcher=ensureStableLauncher(process.execPath);
