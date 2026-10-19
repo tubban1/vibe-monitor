@@ -19,12 +19,14 @@ There is one client package, @vibe-monitor/setup, for all plans. The only curren
 
 ## Remaining P0 gates
 
-1. **Beta.41 → 1.0.1 direct migration is not yet proven end-to-end with a real eligible Beta installation and the live gated migration service.** The server-side prepare/activate/verify components and public takeover validation exist, but the complete user flow still needs production-like UAT without creating another Beta release.
-2. **The actual immutable npm @vibe-monitor/setup@1.0.1 registry artifact has not been published**, so the final production signed-manifest download cannot yet be verified against the real registry object.
-3. **Three-OS native upgrade acceptance still needs the exact release artifact**: Beta.41 → 1.0.1 and 1.0.1 → a later signed stable candidate, including restart activation and rollback.
-4. **Website telemetry controls require end-to-end validation** against an individual installation before the README can claim that users can manage collection there.
-5. **Beta.41 vs 1.0.1 scoring/calibration differences require explicit product acceptance or correction**; functional coverage is present, exact numerical parity is not established.
-6. Final owner GO, privacy GO, exact reviewed commit SHA, provenance, and npm release workflow approval are required before publication.
+1. **Beta.41 -> 1.0.1 direct migration is still incomplete.** The public 1.0.1 installer can verify an already-active Stable handoff, but it does not itself perform the Beta prepare/activate exchange. The production `POST /migration/beta/verify` route currently returns HTTP 404. Complete the direct one-client migration path, deploy the gated service, then run a real Beta.41 end-to-end UAT.
+2. **npm Registry hygiene is not release-ready.** `beta` points to `0.3.0-beta.41`, but `latest` still points to historical `0.0.0-stage`. This QA machine has no npm write authentication, so that tag could not be removed here. Remove/deprecate the staging default before publishing 1.0.1.
+3. **Telemetry install behavior is inconsistent across audited sources.** The public 1.0.1 release branch currently initializes telemetry enabled on first install, while the current internal audited source initializes it disabled until explicit `--accept-telemetry` / `telemetry on`. Pick one product contract and make source, disclosure, tests and Cloud behavior identical before release.
+4. **The immutable npm `@vibe-monitor/setup@1.0.1` artifact does not exist yet.** Final production manifest verification against the real Registry tarball, exact digest and signer therefore remains pending.
+5. **Native exact-artifact upgrade acceptance remains:** Beta.41 -> 1.0.1 on supported macOS/Windows/Linux, plus a signed stable-to-stable update/restart/rollback test from 1.0.1.
+6. **Beta.41 vs 1.0.1 scoring/calibration differences still need an explicit product decision** (accept as intended improvement or correct before release).
+
+Final publication additionally requires owner/privacy GO, exact reviewed commit SHA/provenance, npm authorization and an explicit release action.
 
 ## Release invariants
 
