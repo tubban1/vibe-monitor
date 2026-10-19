@@ -46,7 +46,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  const policyFile=path.join(app,"free-telemetry","config.json");
  fs.mkdirSync(path.dirname(policyFile),{recursive:true});
  fs.writeFileSync(policyFile,JSON.stringify({schemaVersion:1,enabled:true,
-   dataIntelligenceDecision:"included",consentVersion:"free-v1"}));
+   dataIntelligenceDecision:"included",consentVersion:"telemetry-v1"}));
  const initialized=spawnSync(process.execPath,["--input-type=module","-e",
    'import {initializeFreeTelemetry} from '+JSON.stringify(pathToFileURL(path.join(root,"src","telemetry.js")).href)+'; initializeFreeTelemetry()'],
    {cwd:temp,env,encoding:"utf8",timeout:30000});
@@ -99,7 +99,7 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(result.distribution,"open-client");
  assert.equal(result.activation.registered,false);
  assert.equal(result.telemetry.enabled,true);
- assert.equal(result.telemetry.consentVersion,"free-v1");
+ assert.equal(result.telemetry.consentVersion,"telemetry-v1");
  assert.equal(result.telemetry.cloudTransportConfigured,false);
  assert.deepEqual(result.lifecycle,{storage:"local-only",uploaded:false,
   stages:["started","runtime_installed","mcp_configured","completed"],errorCode:null});
@@ -136,7 +136,7 @@ test("unified open client performs offline scan, install and uninstall with no u
    assert.equal(run(...attempted).status,2);
  const originalContent=fs.readFileSync(policyFile,"utf8");
  fs.writeFileSync(policyFile,JSON.stringify({schemaVersion:1,enabled:false,
-   consentVersion:"free-v1",dataIntelligenceDecision:"included"}));
+   consentVersion:"telemetry-v1",dataIntelligenceDecision:"included"}));
  const blockedScan=run("scan",project,"--json");
  assert.equal(blockedScan.status,2);
  assert.equal(JSON.parse(blockedScan.stdout).monitoring.reason,"telemetry_required");

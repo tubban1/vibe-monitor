@@ -10,12 +10,12 @@ const receiptFile=()=>file("migration","stable-handoff-verified.json");
 function activeContext(){
  const b=safeJsonRead(file("cloud","client.json"),null);
  const j=safeJsonRead(file("migration","beta-stable.json"),null);
- const c=safeJsonRead(file("migration","free-v1-consent.json"),null);
+ const c=safeJsonRead(file("migration","stable-migration-consent.json"),null);
  const d=safeJsonRead(file("device.json"),null);
  if(!uuid(b?.installationId)||!uuid(b?.deviceId)||!uuid(j?.stableInstallationId)||
   !uuid(d?.deviceId)||j.phase!=="active"||j.legacyInstallationId!==b.installationId||
   j.deviceId!==b.deviceId||d.deviceId!==b.deviceId||
-  c?.schemaVersion!==1||c.consentVersion!=="free-v1"||c.termsSha256!==termsHash||
+  c?.schemaVersion!==1||c.consentVersion!=="stable-migration-v1"||c.termsSha256!==termsHash||
   !Number.isFinite(Date.parse(c.acceptedAt))||Date.parse(c.acceptedAt)>Date.now()+60_000||c.legacyInstallationId!==b.installationId||
   c.deviceId!==d.deviceId)return null;
  return {legacyInstallationId:b.installationId,stableInstallationId:j.stableInstallationId,deviceId:d.deviceId};

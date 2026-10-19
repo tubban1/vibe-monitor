@@ -1,86 +1,37 @@
-# Vibe Monitor 1.0 final release audit (2026-10-19)
+# Vibe Monitor 1.0.1 release audit — 2026-10-19
 
-**Decision: NO-GO for the stable release until P0 signed OTA and legacy handoff are verified.** This document is not authorization to publish npm or deploy production services.
+**Current decision: NO-GO until the remaining P0 gates below are closed.**
+
+There is one client package, @vibe-monitor/setup, for all plans. The only current stable release target is **1.0.1**. The withdrawn 1.0.0 package is not part of the release path.
 
 ## Verified
-- Mac Codex: five genuine MCP calls passed on an isolated Playground, 178 ms full scan, S3 / 3 findings / 1 attention, signed policy revision 2. Neon matched the returned call IDs and scan IDs. The user's working Git tree was untouched.
-- Windows Antigravity: Playground S18 code-change test, findings reduced 3 -> 2 after fixing the encoded-ID time contract; build/lint passed; Neon event match.
-- Local updater rehearsal, isolated fake packages: beta.41 -> 1.0.0 -> 1.0.1; successful next-start activation, manual rollback, unhealthy-candidate fallback and preservation of legacy data markers. This does NOT prove signed public OTA delivery.
-- Public signed-policy service: official /free/policy returned HTTP 200.
-- Source regression tests, build and npm pack dry-run passed; this is an RC, not the stable 1.0.0.
 
-## Beta.41 comparison using the same clean Playground
-| Test | Private Beta.41 | Current public RC |
-| --- | --- | --- |
-| Offline scoring baseline | 3 findings; highest S2 | 1 finding; highest S2 |
-| Same signed decision policy revision 2 | 3 findings; highest S2 | 3 findings; highest S3 |
-| ActivityLog.tsx, revision 2 | S2 score 42 | S3 score 52 |
-| App.tsx, revision 2 | S2 score 50 | S2 score 39 |
-| Implicit encoded ID contract, revision 2 | S2 score 40 | S2 score 40 |
+- macOS Codex native Playground scan passed with signed architecture policy Revision 2 and matching Neon telemetry evidence.
+- Windows Antigravity Playground architecture-change test passed; build and lint passed.
+- GitHub-hosted Windows, macOS and Ubuntu Node 22 release CI passed on the audited release branch.
+- Production OTA uses a dedicated Ed25519 signing root, separate from architecture-policy signing. The client pins only the public key.
+- Neon vibeupdate reports signerReady=true with the pinned key fingerprint.
+- Production stable release_control remains disabled with rollout 0% and no active stable artifact.
+- Real-format npm tarball UAT passed in isolation: SHA-256 verification, Ed25519 positive/negative cases, actual npm install, next-launch activation, rollback, and tampered-artifact quarantine.
+- The genuinely published 0.3.0-beta.41 package was downloaded from npm Registry and its registry integrity was verified in isolated QA.
+- Public installer handoff tests preserve Beta project history and keep exactly one Agent MCP entry after a verified migration.
+- The current release tree contains only the 1.0.1 stable release path; obsolete prerelease bridge naming has been removed.
 
-Coverage exists for the three detected items under the same live strategy, but numeric/stage parity is NOT proved. The 13 family names exist in Policy V2; this single fixture does not demonstrate actual value-by-value equivalence across all 13 families. The calibration change needs an explicit product decision.
+## Remaining P0 gates
 
-## P0 blockers before release 1.0.0
-1. Public OTA signing pins for V1 and V2 remain null. No approved separately-held Ed25519 update signer has been pinned into the shipping binary.
-2. Official /free/update-manifest returned HTTP 404. The working signed-policy endpoint is unrelated to executable update authorization.
-3. The public signed-only auto-stage + next-restart activation scheduler has been added to RC source. It deliberately fails closed without an approved signer and immutable HTTPS manifest; real OTA is not yet verified.
-4. Stable 1.0.0+ now selects a versioned managed runtime and stable launcher, not an ephemeral npx cache. A real signed registry installation, upgrade and rollback on macOS, Windows and Linux is still required.
-5. Old Beta Cloud metadata still activates legacy_beta_upgrade_requires_verified_handoff and blocks direct public install/setup. Automatic migration requires a compatible and approved legacy Beta Cloud rollout. Older unmanaged or incompatible Beta versions need a safe fallback migration installer. Neither path is verified end to end.
-6. Public CLI disallows telemetry on/off and starts with telemetry ON, but website-to-client settings changes require end-to-end verification.
-7. Exact Beta.41/RC field-value parity (all 13 monitor families, evidence quality, outcome, feedback and notice families) is NOT fully evidenced, and live score differences must be approved.
-8. SemVer release-cutover blocker: existing 1.0.1-rc.0 is newer than 1.0.0. Normal anti-downgrade refuses 1.0.1-rc.0 -> 1.0.0. Prefer first stable release 1.0.1, or design a separately reviewed explicit RC-to-1.0.0 migration; never bypass rollback/downgrade guards silently.
+1. **Beta.41 → 1.0.1 direct migration is not yet proven end-to-end with a real eligible Beta installation and the live gated migration service.** The server-side prepare/activate/verify components and public takeover validation exist, but the complete user flow still needs production-like UAT without creating another Beta release.
+2. **The actual immutable npm @vibe-monitor/setup@1.0.1 registry artifact has not been published**, so the final production signed-manifest download cannot yet be verified against the real registry object.
+3. **Three-OS native upgrade acceptance still needs the exact release artifact**: Beta.41 → 1.0.1 and 1.0.1 → a later signed stable candidate, including restart activation and rollback.
+4. **Website telemetry controls require end-to-end validation** against an individual installation before the README can claim that users can manage collection there.
+5. **Beta.41 vs 1.0.1 scoring/calibration differences require explicit product acceptance or correction**; functional coverage is present, exact numerical parity is not established.
+6. Final owner GO, privacy GO, exact reviewed commit SHA, provenance, and npm release workflow approval are required before publication.
 
-## Required release gates
-- Independent custody and fingerprint approval of the production OTA Ed25519 public verification key; the private key is never copied into Git or the client.
-- Live signed update manifest with canonical npm artifact URL, digest, revision, expiry, anti-downgrade and controlled rollout, plus negative security tests.
-- Real multi-platform trial: supported old Beta -> 1.0.0, 1.0.0 -> later stable, Agent restart, rollback, failure quarantine, preserved project history, no Beta credential reuse and one MCP entry per Agent.
-- Explicit safe handoff for unsupported Beta install types, website telemetry-control verification, release CI/source privacy review, and final human GO before npm publication.
+## Release invariants
 
-No current Mac or Windows installations, legacy credentials, Cloudflare deployment, Neon schema or production cursors were modified in this audit.
-
-## Release sprint follow-up (2026-10-19)
-
-- Public client now polls for signed release updates shortly after startup and hourly for long-lived MCP processes. Timers do not keep the process alive; signer gate, staged activation, quarantine and failure backoff remain intact.
-- An offline signing helper in scripts/sign-stable-update-manifest.mjs signs reviewed local .tgz files with a separately held owner-readable Ed25519 private key. It computes SHA-256, self-verifies and cannot overwrite a signed manifest. The helper and private key are excluded from published client packages.
-- Public client 58/58 regression tests PASS; client build PASS.
-- Existing PRIVATE Beta UAT, tested with isolated synthetic fixtures: 12/12 signed manifest, Beta handoff and migration gateway tests PASS. No private Beta source or credentials were copied to the public repository.
-- Cloudflare: production vibe-monitor-gateway and separate vibe-monitor-free-uat / vibe-monitor-migration-uat Workers exist.
-- Neon stable release_control row: disabled, 0% rollout, no artifact/version. Active Function does not advertise FREE_UPDATE_SIGNING_ENABLED or FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM. Production OTA remains NO-GO.
-- No production key generated; no Cloudflare/Neon deployment, rollout enablement, npm publish, or user installation modified in this sprint.
-- Windows Computer MCP returns Session terminated; new Windows-native upgrade is NOT VERIFIED.
-
-## Authorized production OTA infrastructure stage (2026-10-19)
-
-- Generated a separate production Ed25519 keypair in a protected local temporary directory, private file mode 0600. Pinned only its public key; SHA-256 fingerprint: 955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2.
-- Added free_signed_revision (integer NOT NULL DEFAULT 0) to Neon release_control. Stable row remains enabled=false, rollout_percent=0, with no artifact/version.
-- Deployed isolated Neon Function vibeupdate, deployment 1, with FREE_UPDATE_SIGNING_ENABLED=0. GET /health reports signer status and GET /free/update-manifest rejects release downloads.
-- Patched production Cloudflare gateway GET /free/update-manifest to route to vibeupdate, preserving prior Policy/Telemetry origin and bindings. Verified: update 503, /free/policy 200 and /health 200.
-- SECRET HANDOFF NOT COMPLETE: automated private-key transfer blocked by host safety checks. Neon Function has no FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM and /health returns signerReady=false.
-- No npm publication, release enablement, rollout, or installed-client change.
-
-## Authorized production signer handoff — verified after operator deployment (2026-10-19)
-
-- Operator manually deployed Neon Function vibeupdate, deployment 2, with FREE_UPDATE_SIGNING_ENABLED and FREE_UPDATE_SIGNING_PRIVATE_KEY_PEM. The private key value was not included in a Git commit, log, chat response, or repository artifact.
-- Live isolated Neon GET /health: HTTP 200, signerReady=true, signer public-key SHA-256 fingerprint 955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2, matching the client OTA trust pin.
-- Live isolated Neon and official Cloudflare gateway GET /free/update-manifest: HTTP 503 signed_free_update_unavailable, without signed envelope, because stable release remains disabled.
-- Live official Cloudflare GET /free/policy: HTTP 200, signed community policy revision 2. Official gateway GET /health: HTTP 200.
-- Neon stable release_control row: enabled=false, rollout_percent=0, free_signed_revision=0; version, artifact URL and artifact digest NULL. No public stable auto-upgrade can be authorized yet.
-- Original temporary signing-key directory was cleared after the private key was moved outside repositories to a restricted local backup (0700 directory, 0600 file); fingerprint verified. A separate encrypted off-machine recovery backup is still recommended.
-- Signer provisioning gate PASS. Real immutable npm artifact, signed release manifest rollout, three-OS native upgrades, Beta-safe handoff and website-only Telemetry governance remain NO-GO.
-
-## Actual npm tarball OTA & published Beta.41 safety UAT (2026-10-19)
-
-Two opt-in checks (excluded from default CI because they install/download packages):
-
-1. npm run qa:ota-real-package: creates stable 1.0.1 from isolated audited source, real npm pack (.tgz 142484 bytes; SHA-256 25c12b50bb41381220346cab3b7dba5b948d42f87e3c5552dc13c3cfc130ad3f), uses ephemeral Ed25519 TEST signer and controlled official-registry URL responses, verifies valid/invalid/expired signed manifests, downloads archive, checks SHA-256, runs REAL npm install into temporary slot, activates on next launcher restart, rolls back, and quarantines altered artifact. ALL PASS. Not a real published npm 1.0.1 download; does not use production private signing key.
-2. npm run qa:beta41-real-package: downloads genuinely published 0.3.0-beta.41 from npm Registry, validates SHA-512 against Registry dist.integrity, installs it in isolated npm prefix. Synthetic Cloud registration and project history show unverified direct migration is rejected safely, with history/registration preserved and Beta credentials unused. ALL PASS for safety; full verified Beta-to-stable handoff remains NOT VERIFIED.
-
-Both UAT scripts isolate home/state in temporary directories and delete them after tests. They do NOT change existing installed Mac/Windows client, official npm registry, Neon, Cloudflare or the stable 0% rollout.
-
-## Active Beta-to-Stable OSS installer handoff bridge (2026-10-19)
-
-- Private Cloud adds POST /migration/beta/verify. Read-only; restricted by existing Cloudflare handoff switch, IP rate limiter, origin shared secret and Neon switch. Checks only a hashed NEW vms_ token with stableInstallationId + deviceId and ACTIVE state; never accepts legacy vmb_ credentials. Not enabled in production.
-- Public installer accepts Beta home only after private Free-v1 consent with exact terms digest, device match, ACTIVE prepare/activate lineage, and official Cloud confirmation with the NEW Stable credential from OS Vault. Local receipt holds nonsecret IDs only; old Beta Cloud registration and historical files remain untouched.
-- Isolated QA: public verified takeover 3/3 PASS, duplicate Codex registration remains exactly one Vibe Monitor MCP entry; wrong Cloud identity and modified consent denied. Private read-only verifier 3/3 PASS; combined private migration QA 23/23 PASS; public regression 71/71 PASS, build and privacy audit PASS.
-- Published Beta.41 does not yet bundle explicit-consent/prepare/activate helper. Real published-Beta migration and production active-identity UAT remain NO-GO; no migration is performed without per-user consent.
-- Stable 1.0.1 remains unpublished and release-control remains OFF / rollout 0%.
+- No new Beta version is introduced as a migration bridge.
+- Beta.41 goes directly to 1.0.1.
+- One npm package and one Vibe Monitor MCP entry per Agent.
+- Old Beta credentials are never reused as the Stable credential.
+- Project history remains local and preserved through migration.
+- Executable updates require a valid signed manifest, immutable registry URL/digest, anti-downgrade checks, and failure rollback.
+- Production rollout stays 0% until an explicit release GO.

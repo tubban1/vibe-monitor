@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_version:
-        description: Approved stable semver (e.g. 1.0.0)
+        description: Approved stable semver (e.g. 1.0.1)
         required: true
         type: string
       expected_sha:

@@ -365,7 +365,7 @@ test("Free on-by-default queue is separate from old Beta, bounded and opt-out pu
  const old=JSON.stringify({enabled:true,consentVersion:"private-beta-v4"});
  fs.writeFileSync(path.join(betaDir,"config.json"),old);
  assert.equal(initializeFreeTelemetry().enabled,true);
- assert.equal(telemetryStatus().consentVersion,"free-v1");
+ assert.equal(telemetryStatus().consentVersion,"telemetry-v1");
  for(let i=0;i<1500;i++)
   enqueueActivityTelemetry({event:"checkpoint",projectId:"test-project",agent:"codex",
    sessionId:crypto.randomUUID(),durationMs:i});

@@ -21,7 +21,7 @@ const put=(name,obj)=>{const f=path.join(home,name);fs.mkdirSync(path.dirname(f)
 const cloud=put("cloud/client.json",{schemaVersion:1,installationId:legacy,deviceId:device});
 put("device.json",{deviceId:device});
 put("migration/beta-stable.json",{schemaVersion:1,phase:"active",legacyInstallationId:legacy,stableInstallationId:stable,deviceId:device});
-const consent=put("migration/free-v1-consent.json",{schemaVersion:1,consentVersion:"free-v1",
+const consent=put("migration/stable-migration-consent.json",{schemaVersion:1,consentVersion:"stable-migration-v1",
  termsSha256:"d829b3c238d1543bb810e29b2ac4d13095144a99f83581d13cab36634a64299b",
  acceptedAt:new Date().toISOString(),legacyInstallationId:legacy,deviceId:device});
 put("projects/demo/history.json",{revisionCount:42});
@@ -67,7 +67,7 @@ test("active Stable bearer and consent allow OSS takeover; preserve Beta and his
  assert.equal((fs.readFileSync(codex,"utf8").match(/\[mcp_servers[.]vibe-monitor\]/g)||[]).length,1);
  assert.equal(readRuntimePointer("current")?.type,"local");
 });
-test("tampered Free consent stops the previously verified local handoff",async()=>{
+test("tampered migration consent stops the previously verified local handoff",async()=>{
  const prior=fs.readFileSync(consent,"utf8");
  fs.writeFileSync(consent,JSON.stringify({...JSON.parse(prior),termsSha256:"0".repeat(64)}));
  try{

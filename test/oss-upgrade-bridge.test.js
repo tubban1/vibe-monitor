@@ -8,7 +8,7 @@ import {ensureStableLauncher,writeRuntimePointer,readRuntimePointer,
   runtimeVersionEntry} from "../src/install.js";
 import {rollbackUpdate,updateStateFile} from "../src/update.js";
 
-test("isolated old Beta -> 1.0.0 -> 1.0.1 activation, health fallback and rollback",()=>{
+test("isolated old Beta -> 1.0.1 -> 1.0.2 activation, health fallback and rollback",()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),"vm-release-upgrade-"));
  const oldHome=process.env.VIBE_MONITOR_HOME;
  const oldPreflight=process.env.VIBE_MONITOR_UPDATE_PREFLIGHT;
@@ -56,22 +56,30 @@ test("isolated old Beta -> 1.0.0 -> 1.0.1 activation, health fallback and rollba
   slot("0.3.0-beta.41");
   writeRuntimePointer("current",{schemaVersion:1,type:"version",version:"0.3.0-beta.41"});
   assert.match(invoke(),/0[.]3[.]0-beta[.]41/);
-  slot("1.0.0");
-  stage("1.0.0");
-  assert.match(invoke(),/Vibe Monitor 1[.]0[.]0/);
-  assert.equal(readRuntimePointer("current").version,"1.0.0");
-  assert.equal(readRuntimePointer("previous").version,"0.3.0-beta.41");
+
+  // First stable release: Beta.41 -> 1.0.1.
   slot("1.0.1");
   stage("1.0.1");
   assert.match(invoke(),/Vibe Monitor 1[.]0[.]1/);
   assert.equal(readRuntimePointer("current").version,"1.0.1");
-  assert.equal(readRuntimePointer("previous").version,"1.0.0");
-  assert.equal(rollbackUpdate().currentVersion,"1.0.0");
-  assert.match(invoke(),/Vibe Monitor 1[.]0[.]0/);
-  slot("1.0.2",false);
+  assert.equal(readRuntimePointer("previous").version,"0.3.0-beta.41");
+
+  // Future signed stable update: 1.0.1 -> 1.0.2.
+  slot("1.0.2");
   stage("1.0.2");
-  assert.match(invoke(),/Vibe Monitor 1[.]0[.]0/);
-  assert.equal(readRuntimePointer("current").version,"1.0.0");
+  assert.match(invoke(),/Vibe Monitor 1[.]0[.]2/);
+  assert.equal(readRuntimePointer("current").version,"1.0.2");
+  assert.equal(readRuntimePointer("previous").version,"1.0.1");
+
+  // Manual rollback returns to the last known-good stable.
+  assert.equal(rollbackUpdate().currentVersion,"1.0.1");
+  assert.match(invoke(),/Vibe Monitor 1[.]0[.]1/);
+
+  // An unhealthy future candidate must not displace 1.0.1.
+  slot("1.0.3",false);
+  stage("1.0.3");
+  assert.match(invoke(),/Vibe Monitor 1[.]0[.]1/);
+  assert.equal(readRuntimePointer("current").version,"1.0.1");
   assert.equal(fs.readFileSync(marker,"utf8"),"preserve-private-project-history");
   assert.match(fs.readFileSync(betaCloud,"utf8"),/oldBetaMetadata/);
   assert.match(fs.readFileSync(legacyTelemetry,"utf8"),/private-beta-v4/);

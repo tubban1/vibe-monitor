@@ -395,7 +395,7 @@ export function initializeFreeTelemetry() {
   // First install accepts the disclosed Free product-improvement contract.
   // If stopped, Free analysis also stops; the user may restore both together.
   if (!previous) writePrivateJson(configFile(), { schemaVersion: 1, enabled: true,
-    consentVersion: "free-v1", dataIntelligenceDecision: "included",
+    consentVersion: "telemetry-v1", dataIntelligenceDecision: "included",
     updatedAt: new Date().toISOString() });
   if (readConfig().enabled) ensureIdentity();
   return telemetryStatus();
@@ -411,7 +411,7 @@ export function setTelemetryEnabled(enabled) {
       writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
         enabled: Boolean(enabled),
         ...(enabled ? {dataIntelligenceDecision:"included"} : {}),
-        consentVersion: "free-v1",
+        consentVersion: "telemetry-v1",
         updatedAt: new Date().toISOString() });
       if (!enabled) {
         // Opt-out clears every pending Free segment, not just the active file.
@@ -449,7 +449,7 @@ export function setDataIntelligenceEnabled(enabled) {
     if (enabled && !previous.enabled) throw new Error("telemetry_must_be_enabled");
     writePrivateJson(configFile(), { ...previous, schemaVersion: 1,
       dataIntelligenceDecision: "included",
-      consentVersion: "free-v1", updatedAt: new Date().toISOString() });
+      consentVersion: "telemetry-v1", updatedAt: new Date().toISOString() });
     if (!enabled) scrubQueuedArchitectureProfiles();
     return telemetryStatus();
   }
