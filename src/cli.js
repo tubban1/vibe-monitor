@@ -12,7 +12,7 @@ import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setu
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
 import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
-import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation } from "./install.js";
+import { installProduct, installOpenClientProduct, installStatus, detectUnmigratedBetaInstallation, stableReleaseUsesManagedRuntime } from "./install.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from "./update.js";
 import { inspectProjectRef, listProjects } from "./projects.js";
@@ -198,7 +198,7 @@ if (command === "install") {
     lifecycle.mark("started");
     try {
       const result=await installOpenClientProduct({
-        agents:selectedAgents(),local:true,cliPath:filename,
+        agents:selectedAgents(),local:!stableReleaseUsesManagedRuntime(),cliPath:filename,
         onStage:stage=>lifecycle.mark(stage)
       });
       lifecycle.mark("completed");

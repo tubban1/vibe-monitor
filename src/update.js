@@ -379,7 +379,7 @@ export async function updateStatus({ refresh = false } = {}) {
       channel:m?"stable":"unconfigured",updateEnabled:!!m,eligible,
       latestVersion:m?.version||null,minimumVersion:null,
       available:!!m&&eligible&&compareVersions(m.version,current)>0,
-      belowMinimum:false,critical:false,autoStage:false,autoActivate:"manual",
+      belowMinimum:false,critical:false,autoStage:!!m,autoActivate:m?"next-start":"disabled",
       artifactReady:!!m,lastCheckAt:state.lastCheckAt||null,lastStageAt:state.lastStageAt||null,
       lastRollbackAt:state.lastRollbackAt||null,lastRollbackReason:state.lastRollbackReason||null,
       lastFailureAt:state.lastFailureAt||null,lastFailureReason:state.lastFailureReason||null,
@@ -693,34 +693,48 @@ export function consumeUpdateNotice() {
   return candidate;
 }
 
-export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
-  if (isOpenClientDistribution()) return false;
-  if (autoUpdateScheduled || process.env.VIBE_MONITOR_UPDATE_PREFLIGHT === "1") return false;
+// Only a verified signed public manifest may authorize an automatic update.
+// Availability, eligibility, quarantine, transport and backoff remain separate
+// decisions. This helper is pure so release tests can exercise these gates.
+export function shouldAutoStageUpdate(status, state = {}, { signedPublic = false } = {}) {
+  return Boolean(
+    status?.updateEnabled === true &&
+    status?.eligible === true &&
+    status?.available === true &&
+    status?.artifactReady === true &&
+    (signedPublic ? status.source === "signed-free-update" : status.autoStage === true) &&
+    !(state.quarantinedVersions || []).includes(status.latestVersion) &&
+    !transientFailureBackoffActive(state)
+  );
+}
 
+export function scheduleAutomaticUpdate({ delayMs = 2500 } = {}) {
+  const signedPublic = isOpenClientDistribution();
+  // A stable pinned trust root is mandatory. Never query or stage unsigned
+  // executable artifacts, including when a legacy Beta registry is present.
+  if (signedPublic && !publicUpdateTrustReady()) return false;
+  if (autoUpdateScheduled || process.env.VIBE_MONITOR_UPDATE_PREFLIGHT === "1") return false;
   const current = readRuntimePointer("current");
-  if (!current || !["version", "legacy"].includes(current.type)) return false;
+  const entry = runtimeRecordEntry(current);
+  if (!current || !["version", "legacy"].includes(current.type) ||
+      !entry || !fs.existsSync(entry)) return false;
 
   autoUpdateScheduled = true;
   const timer = setTimeout(async () => {
     try {
       const status = await updateStatus({ refresh: false });
-      observeAvailableUpdate((await fetchRemotePolicy({ force: false }))?.update || {});
-      const state = readUpdateState();
-      if (
-        !status.updateEnabled ||
-        !status.eligible ||
-        !status.available ||
-        !status.autoStage ||
-        !status.artifactReady ||
-        state.quarantinedVersions?.includes(status.latestVersion) ||
-        transientFailureBackoffActive(state)
-      ) {
-        return;
+      if (!signedPublic) observeAvailableUpdate((await fetchRemotePolicy({ force: false }))?.update || {});
+      if (!shouldAutoStageUpdate(status, readUpdateState(), { signedPublic })) return;
+      const staged = await stageUpdate();
+      if (signedPublic && staged.staged && staged.activateOnNextStart !== true) {
+        // Atomic activation occurs in the stable launcher on the NEXT Agent
+        // restart. Never switch or interrupt an in-flight MCP session.
+        activateStagedUpdate();
       }
-      await stageUpdate();
     } catch (error) {
       const code = failureCode(error);
       if (code === "update_stage_in_progress" || code === "update_version_quarantined") return;
+      // Staging records its own failure state; keep the active version intact.
     }
   }, Math.max(0, delayMs));
   timer.unref?.();

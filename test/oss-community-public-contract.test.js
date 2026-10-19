@@ -5,12 +5,12 @@ import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
-import {fetchVerifiedNode,nodeDownloadSources} from "../src/install.js";
+import {fetchVerifiedNode,nodeDownloadSources,stableReleaseUsesManagedRuntime} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
 import {buildAgentResult,applyMonitoringPolicy,initializeMcpTelemetry,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
 import {detectorRuleId,monitorFamilyForDetector} from "../src/rule-identity.js";
 import {POLICY_V2_FAMILIES} from "../src/decision-policy.js";
-import {updateStatus} from "../src/update.js";
+import {updateStatus,compareVersions,shouldAutoStageUpdate,scheduleAutomaticUpdate,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM} from "../src/update.js";
 import {CLIENT_VERSION} from "../src/constants.js";
 import {freeTelemetryWireBatch,initializeFreeTelemetry,enqueueActivityTelemetry,enqueueOutcomeTelemetry,telemetryStatus,setTelemetryEnabled,readTelemetryBatch} from "../src/telemetry.js";
 import os from "node:os";
@@ -527,4 +527,45 @@ test("Direct MCP boot initializes Free telemetry ON while preserving an existing
   vars.forEach((k,i)=>{if(prev[i]===undefined)delete process.env[k];else process.env[k]=prev[i];});
   fs.rmSync(tmp,{recursive:true,force:true});
  }
+});
+
+test("Signed automatic upgrade handles pre-1.0 Beta to 1.0.0 and future stable semver ordering",()=>{
+ assert.equal(compareVersions("0.3.0-beta.41","1.0.0"),-1);
+ assert.equal(compareVersions("0.9.9","1.0.0"),-1);
+ assert.equal(compareVersions("1.0.0","1.0.1"),-1);
+ assert.equal(compareVersions("1.0.1-rc.0","1.0.1"),-1);
+ assert.equal(compareVersions("1.1.0","1.0.0"),1);
+ const manifest={source:"signed-free-update",updateEnabled:true,eligible:true,
+    available:true,artifactReady:true,latestVersion:"1.0.1",autoStage:false};
+ assert.equal(shouldAutoStageUpdate(manifest,{}, {signedPublic:true}),true);
+ assert.equal(shouldAutoStageUpdate({...manifest,eligible:false},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate({...manifest,source:"open-client"},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate({...manifest,available:false},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate({...manifest,artifactReady:false},{},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate(manifest,{quarantinedVersions:["1.0.1"]},{signedPublic:true}),false);
+ assert.equal(shouldAutoStageUpdate(manifest,{lastFailureReason:"update_download_failed",
+    lastFailureAt:new Date().toISOString()},{signedPublic:true}),false);
+ // No production signer exists yet: RC must fail closed, not claim OTA works.
+ if (FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM===null)assert.equal(scheduleAutomaticUpdate(),false);
+});
+test("Stable publication is blocked when a signed public updater cannot operate",()=>{
+ const pkg=JSON.parse(fs.readFileSync(path.join(root,"package.json"),"utf8"));
+ const stableFormat=/^[0-9]+[.][0-9]+[.][0-9]+$/;
+ assert.equal(stableFormat.test("1.0.0"),true);
+ assert.equal(stableFormat.test("1.0.1"),true);
+ assert.equal(stableFormat.test("1.0.1-rc.0"),false);
+ assert.equal(stableFormat.test("1.0.0-rc.0"),false);
+ if (stableFormat.test(pkg.version)) {
+   assert.match(FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,/^-----BEGIN PUBLIC KEY-----/,
+    "Do not publish stable 1.0.0 without a pinned update signer");
+ }
+});
+
+test("Stable official releases use managed immutable slots, never the npx ephemeral entry",()=>{
+ assert.equal(stableReleaseUsesManagedRuntime("0.3.0-beta.41"),false);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.1-rc.0"),false);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.0"),true);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.1"),true);
+ assert.equal(stableReleaseUsesManagedRuntime("2.0.0"),true);
+ assert.equal(stableReleaseUsesManagedRuntime("1.0.1-beta.0"),false);
 });
