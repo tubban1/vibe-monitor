@@ -67,3 +67,12 @@ No current Mac or Windows installations, legacy credentials, Cloudflare deployme
 - Neon stable release_control row: enabled=false, rollout_percent=0, free_signed_revision=0; version, artifact URL and artifact digest NULL. No public stable auto-upgrade can be authorized yet.
 - Original temporary signing-key directory was cleared after the private key was moved outside repositories to a restricted local backup (0700 directory, 0600 file); fingerprint verified. A separate encrypted off-machine recovery backup is still recommended.
 - Signer provisioning gate PASS. Real immutable npm artifact, signed release manifest rollout, three-OS native upgrades, Beta-safe handoff and website-only Telemetry governance remain NO-GO.
+
+## Actual npm tarball OTA & published Beta.41 safety UAT (2026-10-19)
+
+Two opt-in checks (excluded from default CI because they install/download packages):
+
+1. npm run qa:ota-real-package: creates stable 1.0.1 from isolated audited source, real npm pack (.tgz 142484 bytes; SHA-256 25c12b50bb41381220346cab3b7dba5b948d42f87e3c5552dc13c3cfc130ad3f), uses ephemeral Ed25519 TEST signer and controlled official-registry URL responses, verifies valid/invalid/expired signed manifests, downloads archive, checks SHA-256, runs REAL npm install into temporary slot, activates on next launcher restart, rolls back, and quarantines altered artifact. ALL PASS. Not a real published npm 1.0.1 download; does not use production private signing key.
+2. npm run qa:beta41-real-package: downloads genuinely published 0.3.0-beta.41 from npm Registry, validates SHA-512 against Registry dist.integrity, installs it in isolated npm prefix. Synthetic Cloud registration and project history show unverified direct migration is rejected safely, with history/registration preserved and Beta credentials unused. ALL PASS for safety; full verified Beta-to-stable handoff remains NOT VERIFIED.
+
+Both UAT scripts isolate home/state in temporary directories and delete them after tests. They do NOT change existing installed Mac/Windows client, official npm registry, Neon, Cloudflare or the stable 0% rollout.
