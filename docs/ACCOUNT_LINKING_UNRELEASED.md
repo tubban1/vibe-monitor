@@ -25,3 +25,13 @@ Never upload local source, repo paths, raw secure-store secrets, project reports
 Complete a real macOS and Windows native acceptance test, validate owner/non-owner binding on an isolated Neon branch, publish the audited updated npm package, then and only then set `ACCOUNT_FREE_PAIRING_ENABLED=1` on Vercel. Private-Beta `ACCOUNT_DEVICE_PAIRING_ENABLED` must remain separately disabled.
 
 Security: The client first previews the GitHub username associated with the code and requires the person at the original machine to type that username before accessing the local secret or submitting any proof. A code sent by somebody else is **not** sufficient consent.
+
+## Beta41 to 1.0.2 in-place account migration
+
+The original Beta41 installation identity is retained during OTA to Free 1.0.2. The account server must accept a verified historical Beta installation, not reject it due to its release_channel.
+
+After a device owner types the destination GitHub username, the upgraded public CLI checks the original cloud/client.json installation ID and the vmb_ bearer in its local OS vault. It sends the credential only as an HTTPS Authorization header to the exact official Account Center endpoint, never in a URL or telemetry. The backend compares its SHA-256 against the existing Neon installation record; the installation must be active, beta/canary, and unclaimed. The authenticated browser user must confirm ownership separately before the event statistics become visible.
+
+The public Free client does not resume Beta Cloud operations. Credentials are never put into logs or the browser. This migration is distinct from the Free historical-HMAC mechanism.
+
+**Release gate:** the new client must be published and native-tested before ACCOUNT_FREE_PAIRING_ENABLED is enabled. New anonymous Free installations with no historical proof still require a separate authenticated registration protocol. Do not claim this migration solves all new-install pairing.

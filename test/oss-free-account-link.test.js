@@ -6,7 +6,7 @@ import {writeSecret} from "../src/secure-store.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import {freeProjectProof,submitFreeAccountLink,previewFreeAccountPairing,linkFreeAccountFromWorkspace,approvalMatchesGithubLogin} from "../src/free-account-link.js";
+import {freeProjectProof,submitFreeAccountLink,previewFreeAccountPairing,linkFreeAccountFromWorkspace,approvalMatchesGithubLogin,submitLegacyBetaAccountLink,localLegacyBetaIdentity} from "../src/free-account-link.js";
 
 const fixture={
  installationId:"12345678-1234-4234-8234-1234567890ab",
@@ -138,4 +138,61 @@ test('Native-style Mac local secure-store fixture flows through preview, consent
  assert.deepEqual(calls[1].body,{code:'b'.repeat(64),...expected});
  assert.ok(!JSON.stringify(calls).includes(repo));
  assert.ok(!JSON.stringify(calls).includes(secret));
+});
+
+test('Beta41 migration credential is sent ONLY to account center after explicit approval',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vm-account-beta-migration-'));
+ const oldHome=process.env.VIBE_MONITOR_HOME,oldSecret=process.env.VIBE_MONITOR_TEST_SECRET_DIR;
+ t.after(()=>{if(oldHome===undefined)delete process.env.VIBE_MONITOR_HOME;else process.env.VIBE_MONITOR_HOME=oldHome;
+  if(oldSecret===undefined)delete process.env.VIBE_MONITOR_TEST_SECRET_DIR;else process.env.VIBE_MONITOR_TEST_SECRET_DIR=oldSecret;
+  fs.rmSync(dir,{recursive:true,force:true})});
+ const home=path.join(dir,'home'),vault=path.join(dir,'vault');
+ fs.mkdirSync(path.join(home,'cloud'),{recursive:true});fs.mkdirSync(vault,{recursive:true});
+ const token='vmb_'+'a'.repeat(43),id=fixture.installationId;
+ process.env.VIBE_MONITOR_HOME=home;process.env.VIBE_MONITOR_TEST_SECRET_DIR=vault;
+ fs.writeFileSync(path.join(home,'cloud','client.json'),JSON.stringify({
+  schemaVersion:1,installationId:id,baseUrl:'https://vibe-api.fde.fan'
+ }));
+ writeSecret('cloud-installation-token',token);
+ assert.deepEqual(localLegacyBetaIdentity(),{installationId:id,token});
+ let approved=0;const calls=[];
+ const result=await linkFreeAccountFromWorkspace({code:'b'.repeat(64),cwd:'/does/not/exist',
+  confirmTarget:async login=>{approved++;assert.equal(login,'correct-user');return true;},
+  fetchImpl:async(url,opts)=>{
+   calls.push({url,opts});
+   return url.endsWith('free-pair-preview')
+     ?{status:200,json:async()=>({accountLogin:'correct-user'})}:{status:200};
+  }});
+ assert.equal(approved,1);
+ assert.deepEqual(result,{accepted:true,status:'waiting_for_web_confirmation'});
+ assert.equal(calls.length,2);
+ assert.equal(calls[0].opts.headers.authorization,undefined);
+ assert.ok(calls[1].url.endsWith('legacy-beta-accept'));
+ assert.equal(calls[1].opts.headers.authorization,'Bearer '+token);
+ assert.deepEqual(JSON.parse(calls[1].opts.body),{code:'b'.repeat(64),installationId:id});
+ assert.ok(!calls[1].opts.body.includes(token));
+ assert.equal(calls[1].opts.redirect,'error');
+});
+test('Invalid legacy credential cannot be used to claim another installation',async()=>{
+ const id=fixture.installationId,code='a'.repeat(64),calls=[];
+ const cases=[
+  {installationId:id,token:null},
+  {installationId:id,token:'raw-password'},
+  {installationId:'random-id',token:'vmb_'+'a'.repeat(43)}
+ ];
+ for(const identity of cases){
+  const r=await submitLegacyBetaAccountLink({code,identity,fetchImpl:(...args)=>{calls.push(args);throw Error('forbidden');}});
+  assert.equal(r.accepted,false);
+ }
+ assert.equal(calls.length,0);
+});
+test('Legacy migration does not pass untrusted origin or source in request',async()=>{
+ const identity={installationId:fixture.installationId,token:'vmb_'+'b'.repeat(43)};
+ let hits=0;
+ const r=await submitLegacyBetaAccountLink({code:'a'.repeat(64),identity,fetchImpl:async(url,init)=>{
+  hits++;assert.equal(url,'https://vibe.fde.fan/api/account?action=legacy-beta-accept');
+  assert.equal(init.redirect,'error');return{status:409};
+ }});
+ assert.equal(hits,1);
+ assert.equal(r.reason,'legacy_credential_rejected_or_pairing_expired');
 });
