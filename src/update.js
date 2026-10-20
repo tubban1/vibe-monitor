@@ -147,7 +147,14 @@ export function signedUpdateEligibleForInstallation(manifest,installationId){
  },installationId);
 }
 function freeUpdateEligible(manifest){
- return signedUpdateEligibleForInstallation(manifest,telemetryStatus().installationId);
+ // Account Center links the registered Cloud installation UUID, while the
+ // public v1 rollout historically used the separate Free telemetry identity.
+ // Do not mix those namespaces: target only a confirmed linked installation
+ // and leave the legacy public v1 rollout bucket unchanged.
+ const installationId=manifest?.schemaVersion===2
+  ?cloudStatus().installationId
+  :telemetryStatus().installationId;
+ return signedUpdateEligibleForInstallation(manifest,installationId);
 }
 // Do not delay each short-lived Agent call on a Cloud request.
 // Staging always forces a fresh signature verification.
