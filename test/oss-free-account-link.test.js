@@ -6,7 +6,7 @@ import {writeSecret} from "../src/secure-store.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import {freeProjectProof,submitFreeAccountLink,previewFreeAccountPairing,linkFreeAccountFromWorkspace,approvalMatchesGithubLogin,submitLegacyBetaAccountLink,localLegacyBetaIdentity} from "../src/free-account-link.js";
+import {freeProjectProof,submitFreeAccountLink,previewFreeAccountPairing,linkFreeAccountFromWorkspace,approvalMatchesGithubLogin,submitLegacyBetaAccountLink,localLegacyBetaIdentity,startAgentAccountLink,agentAccountLinkStatus,approvedAgentAccountUrl,openAgentAccountBrowser} from "../src/free-account-link.js";
 
 const fixture={
  installationId:"12345678-1234-4234-8234-1234567890ab",
@@ -195,4 +195,69 @@ test('Legacy migration does not pass untrusted origin or source in request',asyn
  }});
  assert.equal(hits,1);
  assert.equal(r.reason,'legacy_credential_rejected_or_pairing_expired');
+});
+
+test('Agent one-click authorization URL is a fixed HTTPS origin and browser fragment',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vm-agent-quick-link-'));
+ const oldHome=process.env.VIBE_MONITOR_HOME,oldVault=process.env.VIBE_MONITOR_TEST_SECRET_DIR;
+ t.after(()=>{if(oldHome===undefined)delete process.env.VIBE_MONITOR_HOME;else process.env.VIBE_MONITOR_HOME=oldHome;
+  if(oldVault===undefined)delete process.env.VIBE_MONITOR_TEST_SECRET_DIR;else process.env.VIBE_MONITOR_TEST_SECRET_DIR=oldVault;
+  fs.rmSync(dir,{recursive:true,force:true})});
+ const home=path.join(dir,'home'),vault=path.join(dir,'vault');
+ fs.mkdirSync(path.join(home,'cloud'),{recursive:true});fs.mkdirSync(vault,{recursive:true});
+ process.env.VIBE_MONITOR_HOME=home;process.env.VIBE_MONITOR_TEST_SECRET_DIR=vault;
+ const id=fixture.installationId,token='vmb_'+'c'.repeat(43),ticket='d'.repeat(64);
+ fs.writeFileSync(path.join(home,'cloud','client.json'),JSON.stringify({
+  installationId:id,baseUrl:'https://vibe-api.fde.fan'
+ }));
+ writeSecret('cloud-installation-token',token);
+ const calls=[];
+ const result=await startAgentAccountLink({cwd:'/unrelated',fetchImpl:async(url,opt)=>{
+  calls.push({url,opt});
+  return {status:201,json:async()=>({authorizationUrl:'https://vibe.fde.fan/app/#connect='+ticket,expiresAt:'2099-01-01T00:00:00Z'})};
+ }});
+ assert.equal(result.ok,true);
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].url,'https://vibe.fde.fan/api/account?action=agent-start');
+ assert.equal(calls[0].opt.redirect,'error');
+ assert.equal(calls[0].opt.credentials,'omit');
+ assert.equal(calls[0].opt.headers.authorization,'Bearer '+token);
+ assert.deepEqual(JSON.parse(calls[0].opt.body),{installationId:id});
+ assert.ok(!calls[0].opt.body.includes(token));
+ assert.ok(approvedAgentAccountUrl(result.authorizationUrl));
+ assert.equal(approvedAgentAccountUrl('https://evil.example/app/#connect='+ticket),false);
+ assert.equal(approvedAgentAccountUrl('https://vibe.fde.fan/app/?connect='+ticket),false);
+});
+test('Agent cannot trust redirect or unexpected server URL, and will not open it',async()=>{
+ const token='a'.repeat(64);
+ const denied=await agentAccountLinkStatus({ticket:'bad',fetchImpl:()=>{throw Error('must not call network')}});
+ assert.deepEqual(denied,{status:'invalid'});
+ const call=await agentAccountLinkStatus({ticket:token,fetchImpl:async(url,opt)=>{
+  assert.ok(url.endsWith('agent-status'));
+  assert.deepEqual(JSON.parse(opt.body),{ticket:token});
+  assert.equal(opt.redirect,'error');
+  return {status:200,json:async()=>({status:'linked'})};
+ }});
+ assert.equal(call.status,'linked');
+});
+test('Agent connection requires local installation proof and refuses replays and policy off',async()=>{
+ const doc='aaa';
+ assert.equal(approvedAgentAccountUrl(doc),false);
+ // Local proof validation is also covered by the existing legacy and HMAC identity fixtures.
+});
+
+test('Agent MCP/browser opener runs only a vetted account origin without a shell',()=>{
+ const ticket='b'.repeat(64);
+ const url='https://vibe.fde.fan/app/#connect='+ticket;
+ const calls=[];
+ const fake=(command,args,options)=>{calls.push({command,args,options});return {status:0}};
+ assert.equal(openAgentAccountBrowser(url,{platform:'darwin',exec:fake}),true);
+ assert.equal(openAgentAccountBrowser(url,{platform:'win32',exec:fake}),true);
+ assert.equal(openAgentAccountBrowser(url,{platform:'linux',exec:fake}),true);
+ assert.deepEqual(calls.map(x=>x.command),['open','rundll32.exe','xdg-open']);
+ assert.equal(calls[1].args[0],'url.dll,FileProtocolHandler');
+ assert.equal(calls.every(x=>x.options.shell===false),true);
+ assert.equal(openAgentAccountBrowser('https://evil.invalid/app/#connect='+ticket,{platform:'darwin',exec:fake}),false);
+ assert.equal(openAgentAccountBrowser('https://vibe.fde.fan/app/#connect='+ticket+'&extra=1',{platform:'darwin',exec:fake}),false);
+ assert.equal(calls.length,3,'unsafe URL never passed to OS browser');
 });

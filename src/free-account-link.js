@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {spawnSync} from "node:child_process";
 import path from "node:path";
 import {vibeHome,safeJsonRead} from "./utils.js";
 import {readSecret} from "./secure-store.js";
@@ -142,4 +143,70 @@ export async function linkFreeAccountFromWorkspace({
  }catch(error){
   return {accepted:false,reason:error?.message||"local_free_identity_unavailable"};
  }
+}
+
+
+const AGENT_START="https://vibe.fde.fan/api/account?action=agent-start";
+const AGENT_STATUS="https://vibe.fde.fan/api/account?action=agent-status";
+const AGENT_URL=/^https:\/\/vibe\.fde\.fan\/app\/#connect=[a-f0-9]{64}$/;
+
+export async function startAgentAccountLink({cwd=process.cwd(),fetchImpl=fetch,timeoutMs=10000}={}){
+ const legacy=localLegacyBetaIdentity();
+ let payload,authorization;
+ if(legacy){
+  payload={installationId:legacy.installationId};
+  authorization="Bearer "+legacy.token;
+ }else{
+  try{payload=localFreeAccountIdentity({cwd})}
+  catch{return {ok:false,reason:"local_installation_proof_unavailable"}}
+ }
+ try{
+  const res=await fetchImpl(AGENT_START,{
+   method:"POST",redirect:"error",credentials:"omit",cache:"no-store",
+   headers:{"content-type":"application/json",...(authorization?{authorization}:{})},
+   body:JSON.stringify(payload),signal:AbortSignal.timeout(timeoutMs)
+  });
+  if(res.status===503)return {ok:false,reason:"agent_link_not_enabled"};
+  if(res.status===409)return {ok:false,reason:"already_linked_or_invalid_local_proof"};
+  if(res.status===429)return {ok:false,reason:"agent_link_rate_limited"};
+  if(res.status!==201)return {ok:false,reason:"agent_link_unavailable"};
+  const data=await res.json();
+  if(!AGENT_URL.test(data?.authorizationUrl||""))
+   return {ok:false,reason:"invalid_authorization_url"};
+  return {ok:true,authorizationUrl:data.authorizationUrl,expiresAt:data.expiresAt};
+ }catch{return {ok:false,reason:"agent_link_unavailable"};}
+}
+
+export async function agentAccountLinkStatus({
+ ticket,fetchImpl=fetch,timeoutMs=8000
+}={}){
+ if(!CODE.test(ticket||""))return {status:"invalid"};
+ try{
+  const res=await fetchImpl(AGENT_STATUS,{
+   method:"POST",redirect:"error",credentials:"omit",cache:"no-store",
+   headers:{"content-type":"application/json"},
+   body:JSON.stringify({ticket:ticket.toLowerCase()}),
+   signal:AbortSignal.timeout(timeoutMs)
+  });
+  if(res.status!==200)return {status:"unavailable"};
+  const data=await res.json();
+  return ["invalid","pending","linked","expired"].includes(data?.status)
+    ?{status:data.status}:{status:"unavailable"};
+ }catch{return {status:"unavailable"};}
+}
+
+export function approvedAgentAccountUrl(url){
+ return AGENT_URL.test(url||"");
+}
+
+export function openAgentAccountBrowser(url,{exec=spawnSync,platform=process.platform}={}){
+ if(!approvedAgentAccountUrl(url))return false;
+ const executable=platform==="darwin"?"open":platform==="win32"?"rundll32.exe":"xdg-open";
+ const options=platform==="win32"
+  ?["url.dll,FileProtocolHandler",url]:[url];
+ try{
+  const response=exec(executable,options,{windowsHide:true,stdio:"ignore",
+   shell:false,timeout:3000});
+  return response?.status===0;
+ }catch{return false;}
 }
