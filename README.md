@@ -8,6 +8,8 @@ The open-source client is published on npm as **`@vibe-monitor/setup@latest`** (
 
 ```bash
 npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
+Account Center 1.0.3 release candidate: `@vibe-monitor/setup@1.0.3` is **not yet published**. Continue using `@latest` until official publishing and verification complete.
+
 ```
 
 On a new install, bounded **pseudonymous** product telemetry defaults **ON**, with notice. Use `install --no-telemetry` or `vibe-monitor telemetry off` to disable collection; this pauses Free architecture analysis. An existing opt-out survives reinstall. No activation code is required.
