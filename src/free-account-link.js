@@ -8,6 +8,8 @@ const CODE=/^[0-9a-f]{64}$/i;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROOF=/^[0-9a-f]{32}$/;
 const ENDPOINT="https://vibe.fde.fan/api/account?action=free-device-accept";
+const PREVIEW_ENDPOINT="https://vibe.fde.fan/api/account?action=free-pair-preview";
+const GITHUB_LOGIN=/^[a-zA-Z0-9-]{1,39}$/;
 
 // This proof matches a secret-derived anonymous project pseudonym already
 // received by Vibe Monitor BEFORE the legacy enrollment cutoff.
@@ -61,8 +63,43 @@ export async function submitFreeAccountLink({
  }catch{return {accepted:false,reason:"account_linking_unavailable"};}
 }
 
-export async function linkFreeAccountFromWorkspace({code,cwd=process.cwd(),fetchImpl=fetch}={}){
- return submitFreeAccountLink({
+// A pairing code may be supplied by another user. Reveal the GitHub account
+// it targets and require explicit local approval BEFORE releasing a project proof.
+export async function previewFreeAccountPairing({code,fetchImpl=fetch,timeoutMs=8000}={}){
+ if(!CODE.test(code||""))return {ok:false,reason:"invalid_pairing_code"};
+ try{
+  const res=await fetchImpl(PREVIEW_ENDPOINT,{
+   method:"POST",redirect:"error",credentials:"omit",cache:"no-store",
+   headers:{"content-type":"application/json"},
+   body:JSON.stringify({code:code.toLowerCase()}),
+   signal:AbortSignal.timeout(timeoutMs)
+  });
+  if(res.status===503)return {ok:false,reason:"account_linking_not_enabled"};
+  if(res.status!==200)return {ok:false,reason:"invalid_or_expired_pairing_code"};
+  const data=await res.json();
+  return GITHUB_LOGIN.test(data?.accountLogin||"")
+   ?{ok:true,accountLogin:data.accountLogin}
+   :{ok:false,reason:"invalid_pairing_response"};
+ }catch{return {ok:false,reason:"account_linking_unavailable"};}
+}
+export function approvalMatchesGithubLogin(login,typed){
+ return GITHUB_LOGIN.test(login||"") && typeof typed==="string" &&
+   typed.trim().toLowerCase()===login.toLowerCase();
+}
+export async function linkFreeAccountFromWorkspace({
+ code,cwd=process.cwd(),fetchImpl=fetch,confirmTarget
+}={}){
+ const preview=await previewFreeAccountPairing({code,fetchImpl});
+ if(!preview.ok)return {accepted:false,reason:preview.reason};
+ // No confirmation callback means deny: don't read the vault or reveal proof.
+ if(typeof confirmTarget!=="function" ||
+    await confirmTarget(preview.accountLogin)!==true)
+  return {accepted:false,reason:"local_user_declined"};
+ try{
+  return await submitFreeAccountLink({
    code,identity:localFreeAccountIdentity({cwd}),fetchImpl
- });
+  });
+ }catch(error){
+  return {accepted:false,reason:error?.message||"local_free_identity_unavailable"};
+ }
 }
