@@ -19,7 +19,7 @@ import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from 
 import { inspectProjectRef, listProjects } from "./projects.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
 import { acceptAccountPairing, readMaskedPairingCode } from "./pairing.js";
-import { linkFreeAccountFromWorkspace, approvalMatchesGithubLogin } from "./free-account-link.js";
+import { linkFreeAccountFromWorkspace, approvalMatchesGithubLogin, startAgentAccountLink, openAgentAccountBrowser } from "./free-account-link.js";
 import readline from "node:readline/promises";
 import {
   exportProjectState,
@@ -467,6 +467,29 @@ if (command === "install") {
   } else {
     console.error("Unknown telemetry action: " + action);
     process.exit(2);
+  }
+// Agent-owned account flow: the ONLY human step is browser authorization.
+} else if (command === "account" && args[1] === "connect") {
+  if (!isOpenClientDistribution()) {
+    console.error("Agent-led account binding is reserved for the public client.");
+    process.exitCode=2;
+  } else {
+    const result=await startAgentAccountLink();
+    if (!result.ok) {
+      if (json) print(result);
+      else console.error("Device connection not started: "+result.reason);
+      process.exitCode=1;
+    } else {
+      const opened=!args.includes("--no-open") &&
+        openAgentAccountBrowser(result.authorizationUrl);
+      if(json)print({status:"waiting_for_browser_approval",
+        ...(!opened?{authorizationUrl:result.authorizationUrl}:{}),
+        opened,expiresAt:result.expiresAt});
+      else console.log(opened
+        ? "Vibe Monitor authorization opened in your browser. Approve this device once."
+        : "Open this Vibe Monitor authorization page to approve your device: "+
+          result.authorizationUrl);
+    }
   }
 // QA opt-in only. A pairing code must never be passed as a CLI argument.
 } else if (command === "account" && args[1] === "link") {
