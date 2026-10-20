@@ -19,7 +19,8 @@ import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from 
 import { inspectProjectRef, listProjects } from "./projects.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
 import { acceptAccountPairing, readMaskedPairingCode } from "./pairing.js";
-import { linkFreeAccountFromWorkspace } from "./free-account-link.js";
+import { linkFreeAccountFromWorkspace, approvalMatchesGithubLogin } from "./free-account-link.js";
+import readline from "node:readline/promises";
 import {
   exportProjectState,
   inspectProjectState,
@@ -475,7 +476,20 @@ if (command === "install") {
   } else if (isOpenClientDistribution()) {
     try {
       const code = await readMaskedPairingCode();
-      const result = await linkFreeAccountFromWorkspace({code});
+      // Pairing code is not consent. Show the target account before
+      // reading local telemetry secrets or sending any ownership proof.
+      const result = await linkFreeAccountFromWorkspace({code,
+        confirmTarget:async login => {
+          if(!process.stdin.isTTY || !process.stdout.isTTY) return false;
+          const rl=readline.createInterface({input:process.stdin,output:process.stdout});
+          try {
+            const entered=await rl.question(
+              "Link to GitHub account "+login+"? Type '"+login+"' to approve: "
+            );
+            return approvalMatchesGithubLogin(login,entered);
+          } finally {rl.close();}
+        }
+      });
       if (json) print(result);
       else console.log(result.accepted
         ? "Device proof accepted. Return to the account dashboard to verify and confirm."
