@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tubban1/vibe-monitor",
+  "title": "Vibe Monitor",
+  "description": "Local architecture advice and evolution checkpoints for AI coding agents.",
+  "websiteUrl": "https://vibe.fde.fan",
+  "repository": {
+    "url": "https://github.com/tubban1/vibe-monitor",
+    "source": "github"
+  },
+  "version": "1.0.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@vibe-monitor/setup",
+      "version": "1.0.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 {
   "name": "@vibe-monitor/setup",
+  "mcpName": "io.github.tubban1/vibe-monitor",
   "version": "1.0.5",
   "private": false,
   "description": "Vibe Monitor open-source architecture intelligence client",
