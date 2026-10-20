@@ -728,7 +728,7 @@ if (command === "install") {
     "  vibe-monitor uninstall [--codex|--claude|--cursor|--antigravity|--trae]",
     "  vibe-monitor self-test",
     "",
-    "MVP principles:",
+    "Product principles:",
     "  - session-scoped, no background daemon",
     "  - source read-only",
     "  - local history by default",
