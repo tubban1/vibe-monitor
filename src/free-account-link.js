@@ -9,6 +9,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROOF=/^[0-9a-f]{32}$/;
 const ENDPOINT="https://vibe.fde.fan/api/account?action=free-device-accept";
 const PREVIEW_ENDPOINT="https://vibe.fde.fan/api/account?action=free-pair-preview";
+const LEGACY_ENDPOINT="https://vibe.fde.fan/api/account?action=legacy-beta-accept";
 const GITHUB_LOGIN=/^[a-zA-Z0-9-]{1,39}$/;
 
 // This proof matches a secret-derived anonymous project pseudonym already
@@ -38,6 +39,41 @@ export function localFreeAccountIdentity({cwd=process.cwd()}={}){
  const project=projectIdentity(root);
  return freeProjectProof({installationId:identity.installationId,
   secret,projectInstanceId:project.projectInstanceId});
+}
+
+// A Beta41 installation upgraded in place to public Free retains a private
+// installation credential in its existing OS vault. No Free registration is
+// necessary, and the legacy identity must never be inferred from a UUID alone.
+export function localLegacyBetaIdentity(){
+ const client=safeJsonRead(path.join(vibeHome(),"cloud","client.json"),null);
+ const token=readSecret("cloud-installation-token");
+ if(!UUID.test(client?.installationId||"")||
+    typeof token!=="string"||!/^vmb_[A-Za-z0-9_-]{32,256}$/.test(token)||
+    client?.baseUrl!== "https://vibe-api.fde.fan")
+  return null;
+ return {installationId:client.installationId,token};
+}
+
+export async function submitLegacyBetaAccountLink({
+ code,identity,fetchImpl=fetch,timeoutMs=8000
+}={}){
+ if(!CODE.test(code||""))return {accepted:false,reason:"invalid_pairing_code"};
+ if(!UUID.test(identity?.installationId||"")||
+   !/^vmb_[A-Za-z0-9_-]{32,256}$/.test(identity?.token||""))
+  return {accepted:false,reason:"legacy_installation_credential_unavailable"};
+ try{
+  const res=await fetchImpl(LEGACY_ENDPOINT,{
+   method:"POST",redirect:"error",credentials:"omit",cache:"no-store",
+   headers:{"content-type":"application/json",authorization:"Bearer "+identity.token},
+   body:JSON.stringify({code:code.toLowerCase(),installationId:identity.installationId}),
+   signal:AbortSignal.timeout(timeoutMs)
+  });
+  if(res.status===200)return {accepted:true,status:"waiting_for_web_confirmation"};
+  if(res.status===409)return {accepted:false,reason:"legacy_credential_rejected_or_pairing_expired"};
+  if(res.status===503)return {accepted:false,reason:"account_linking_not_enabled"};
+  if(res.status===401)return {accepted:false,reason:"legacy_installation_credential_unavailable"};
+  return {accepted:false,reason:"account_linking_unavailable"};
+ }catch{return {accepted:false,reason:"account_linking_unavailable"};}
 }
 
 export async function submitFreeAccountLink({
@@ -96,6 +132,10 @@ export async function linkFreeAccountFromWorkspace({
     await confirmTarget(preview.accountLogin)!==true)
   return {accepted:false,reason:"local_user_declined"};
  try{
+  // This is the only accepted migration path for in-place Beta41 upgrades.
+  // Its original credential is already known to the server as a SHA256 hash.
+  const legacy=localLegacyBetaIdentity();
+  if(legacy)return await submitLegacyBetaAccountLink({code,identity:legacy,fetchImpl});
   return await submitFreeAccountLink({
    code,identity:localFreeAccountIdentity({cwd}),fetchImpl
   });
