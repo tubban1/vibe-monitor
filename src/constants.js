@@ -1,5 +1,5 @@
 export const EVIDENCE_VERSION = 7;
-export const CLIENT_VERSION = "1.0.4";
+export const CLIENT_VERSION = "1.0.5";
 export const DEFAULT_CLOUD_URL = "https://vibe-api.fde.fan";
 
 export const SOURCE_EXTENSIONS = new Set([
