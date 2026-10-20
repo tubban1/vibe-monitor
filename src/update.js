@@ -25,11 +25,13 @@ import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 // Separate public-client artifact signing trust: architecture policy signature
 // never authorizes executable updates. Keys must be independently audited/pinned.
 export const FREE_UPDATE_MANIFEST_URL="https://vibe-api.fde.fan/free/update-manifest";
+export const FREE_TARGETED_UPDATE_MANIFEST_URL="https://vibe-api.fde.fan/free/update-manifest?targeted=1";
 export const FREE_UPDATE_KEY_ID="free-update-ed25519-v1";
 export const FREE_UPDATE_NEXT_KEY_ID="free-update-ed25519-v2";
 export const FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAqyVComzhk1MeD77dSfr+ec86w7YSjxBSs3nA2NpktYU=\n-----END PUBLIC KEY-----\n";
 export const FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM=null;
 const stableVersion=/^\d+\.\d+\.\d+$/;
+const digestRegex=/^[a-f0-9]{64}$/;
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
 const exactKeys=(x,keys)=>plain(x)&&Object.keys(x).every(k=>keys.includes(k));
 export function verifyFreeUpdateEnvelope(e,{keys=null,now=Date.now,minRevision=0}={}){
@@ -40,10 +42,23 @@ export function verifyFreeUpdateEnvelope(e,{keys=null,now=Date.now,minRevision=0
     ![FREE_UPDATE_KEY_ID,FREE_UPDATE_NEXT_KEY_ID].includes(e.keyId)||
     !exactKeys(trusted,[FREE_UPDATE_KEY_ID,FREE_UPDATE_NEXT_KEY_ID])||
     typeof trusted[e.keyId]!=="string"||
+    ![1,2].includes(p?.schemaVersion)||
     !exactKeys(p,["schemaVersion","audience","revision","issuedAt","expiresAt",
-      "version","rolloutPercent","rolloutSalt","artifact"])||
+      "version","rolloutPercent","rolloutSalt","artifact",
+      ...(p?.schemaVersion===2?["targeting"]:[])])||
     !exactKeys(artifact,["url","sha256"])||
-    p.schemaVersion!==1||p.audience!=="vibe-monitor-free-update-v1"||
+    p.audience!=="vibe-monitor-free-update-v1"||
+    (p.schemaVersion===2&&(
+      p.rolloutPercent!==0||
+      !exactKeys(p.targeting,["mode","salt","digests"])||
+      p.targeting?.mode!=="installation-digests"||
+      typeof p.targeting?.salt!=="string"||
+      !/^[a-z0-9-]{12,64}$/i.test(p.targeting.salt)||
+      !Array.isArray(p.targeting?.digests)||
+      p.targeting.digests.length<1||p.targeting.digests.length>128||
+      p.targeting.digests.some(x=>typeof x!=="string"||!digestRegex.test(x))||
+      new Set(p.targeting.digests).size!==p.targeting.digests.length
+    ))||
     !Number.isSafeInteger(p.revision)||p.revision<Math.max(1,minRevision)||
     !Number.isSafeInteger(p.issuedAt)||!Number.isSafeInteger(p.expiresAt)||
     p.issuedAt>n+60||p.issuedAt<n-86460||
@@ -75,7 +90,8 @@ const publicUpdateTrustReady=()=>[
  FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,FREE_UPDATE_TRUSTED_NEXT_PUBLIC_KEY_PEM
 ].some(x=>typeof x==="string");
 export async function fetchVerifiedFreeUpdateManifest({
- fetchImpl=globalThis.fetch,now=Date.now,publicKeysById=null,minRevision=0
+ fetchImpl=globalThis.fetch,now=Date.now,publicKeysById=null,minRevision=0,
+ url=FREE_UPDATE_MANIFEST_URL
 }={}){
  const keys=publicKeysById||{
   [FREE_UPDATE_KEY_ID]:FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM,
@@ -84,7 +100,9 @@ export async function fetchVerifiedFreeUpdateManifest({
  if(typeof fetchImpl!=="function"||!Object.values(keys).some(x=>typeof x==="string"))
   return {manifest:null,reason:"signed_update_channel_not_configured"};
  try{
-  const response=await fetchImpl(FREE_UPDATE_MANIFEST_URL,{
+  if(![FREE_UPDATE_MANIFEST_URL,FREE_TARGETED_UPDATE_MANIFEST_URL].includes(url))
+   return {manifest:null,reason:"signed_update_manifest_url_not_allowed"};
+  const response=await fetchImpl(url,{
    method:"GET",headers:{accept:"application/json"},redirect:"error",
    cache:"no-store",signal:AbortSignal.timeout(5000)
   });
@@ -114,12 +132,29 @@ export async function fetchVerifiedFreeUpdateManifest({
   return manifest?{manifest,reason:null}:{manifest:null,reason:"signed_update_manifest_invalid"};
  }catch{return {manifest:null,reason:"signed_update_manifest_unavailable"};}
 }
-function freeUpdateEligible(manifest){
- const installationId=telemetryStatus().installationId;
- return Boolean(installationId)&&updateEligibility({
+export function signedUpdateEligibleForInstallation(manifest,installationId){
+ if(!manifest||typeof installationId!=="string"||!installationId)return false;
+ if(manifest.schemaVersion===2){
+  if(manifest.targeting?.mode!=="installation-digests"||
+     !Array.isArray(manifest.targeting.digests))return false;
+  const digest=crypto.createHash("sha256")
+   .update(manifest.targeting.salt+":"+installationId.toLowerCase()).digest("hex");
+  return manifest.targeting.digests.includes(digest);
+ }
+ return manifest.schemaVersion===1&&updateEligibility({
   enabled:true,rolloutPercent:manifest.rolloutPercent,
   rolloutSalt:manifest.rolloutSalt
  },installationId);
+}
+function freeUpdateEligible(manifest){
+ // Account Center links the registered Cloud installation UUID, while the
+ // public v1 rollout historically used the separate Free telemetry identity.
+ // Do not mix those namespaces: target only a confirmed linked installation
+ // and leave the legacy public v1 rollout bucket unchanged.
+ const installationId=manifest?.schemaVersion===2
+  ?cloudStatus().installationId
+  :telemetryStatus().installationId;
+ return signedUpdateEligibleForInstallation(manifest,installationId);
 }
 // Do not delay each short-lived Agent call on a Cloud request.
 // Staging always forces a fresh signature verification.
@@ -138,13 +173,27 @@ async function currentSignedFreeUpdate({refresh=false}={}){
     previousAttempt<=now&&now-previousAttempt<FREE_MANIFEST_CHECK_COOLDOWN_MS)
   return {manifest:null,reason:"signed_update_check_deferred"};
  writeUpdateState({freeManifestLastAttemptAt:new Date(now).toISOString()});
- const floor=Number.isSafeInteger(state.freeManifestRevision)?state.freeManifestRevision:0;
- const got=await fetchVerifiedFreeUpdateManifest({minRevision:floor});
+ const publicFloor=Number.isSafeInteger(state.freeManifestRevision)?state.freeManifestRevision:0;
+ const targetedFloor=Number.isSafeInteger(state.targetedManifestRevision)?state.targetedManifestRevision:0;
+ // Keep separate revision floors: a discontinued pilot must not prevent
+ // falling back to the still-signed public stable manifest.
+ const targeted=await fetchVerifiedFreeUpdateManifest({
+  minRevision:targetedFloor,url:FREE_TARGETED_UPDATE_MANIFEST_URL
+ });
+ const selectedTarget=targeted.manifest?.schemaVersion===2&&
+  freeUpdateEligible(targeted.manifest);
+ const got=selectedTarget?targeted:await fetchVerifiedFreeUpdateManifest({minRevision:publicFloor});
  if(!got.manifest)return got;
- if(state.freeManifestVersion&&compareVersions(got.manifest.version,state.freeManifestVersion)<0)
+ const previousVersion=selectedTarget?state.targetedManifestVersion:state.freeManifestVersion;
+ if(previousVersion&&compareVersions(got.manifest.version,previousVersion)<0)
   return {manifest:null,reason:"signed_update_rollback_rejected"};
- writeUpdateState({freeManifestRevision:got.manifest.revision,
-  freeManifestVersion:got.manifest.version,lastCheckAt:new Date().toISOString()});
+ writeUpdateState(selectedTarget?{
+  targetedManifestRevision:got.manifest.revision,targetedManifestVersion:got.manifest.version,
+  lastCheckAt:new Date().toISOString()
+ }:{
+  freeManifestRevision:got.manifest.revision,freeManifestVersion:got.manifest.version,
+  lastCheckAt:new Date().toISOString()
+ });
  freeManifestMemory={manifest:got.manifest,checkedAt:now};
  return got;
 }
