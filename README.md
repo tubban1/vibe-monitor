@@ -4,11 +4,11 @@
 
 ## Get started — official stable release
 
-The open-source client is published on npm as **`@vibe-monitor/setup@latest`** (currently **`@vibe-monitor/setup@1.0.2`**). One client is used for Free/Pro/Team; future paid features are not separate installers.
+The open-source client is published on npm as **`@vibe-monitor/setup@latest`** (currently **`@vibe-monitor/setup@1.0.3`**). One client is used for Free/Pro/Team; future paid features are not separate installers.
 
 ```bash
 npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
-Account Center 1.0.3 release candidate: `@vibe-monitor/setup@1.0.3` is **not yet published**. Continue using `@latest` until official publishing and verification complete.
+Agent-led Account Center 1.0.4 release candidate: `@vibe-monitor/setup@1.0.4` is **not yet published**. The published stable `@latest` remains 1.0.3 until owner-approved GitHub Trusted Publishing completes. The new one-click agent linking is staged and not yet available on the published client.
 
 ```
 
