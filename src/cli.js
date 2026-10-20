@@ -19,6 +19,7 @@ import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from 
 import { inspectProjectRef, listProjects } from "./projects.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
 import { acceptAccountPairing, readMaskedPairingCode } from "./pairing.js";
+import { linkFreeAccountFromWorkspace } from "./free-account-link.js";
 import {
   exportProjectState,
   inspectProjectState,
@@ -468,16 +469,24 @@ if (command === "install") {
   }
 // QA opt-in only. A pairing code must never be passed as a CLI argument.
 } else if (command === "account" && args[1] === "link") {
-  if (isOpenClientDistribution()) {
-    // Private Beta QA pairing is not a public account entitlement contract.
-    // Never let an environment variable expose this legacy transport in OSS.
-    console.error("Account pairing is not released for the open client yet.");
+  if (args.includes("--code") || args.some(v => v.startsWith("--code="))) {
+    console.error("Do not pass pairing codes via command arguments. Use hidden interactive input.");
     process.exitCode = 2;
+  } else if (isOpenClientDistribution()) {
+    try {
+      const code = await readMaskedPairingCode();
+      const result = await linkFreeAccountFromWorkspace({code});
+      if (json) print(result);
+      else console.log(result.accepted
+        ? "Device proof accepted. Return to the account dashboard to verify and confirm."
+        : "Account linking not completed: " + result.reason);
+      if (!result.accepted) process.exitCode = 1;
+    } catch (error) {
+      console.error("Account linking not completed: " + (error?.message || "request_failed"));
+      process.exitCode = 1;
+    }
   } else if (!args.includes("--qa") || process.env.VIBE_PORTAL_PAIRING_QA !== "1") {
     console.error("Account pairing is not released yet. Existing installations are unchanged.");
-    process.exitCode = 2;
-  } else if (args.includes("--code") || args.some(v => v.startsWith("--code="))) {
-    console.error("Do not pass pairing codes via command arguments. Use hidden interactive input.");
     process.exitCode = 2;
   } else {
     try {
