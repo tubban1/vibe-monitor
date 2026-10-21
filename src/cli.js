@@ -19,7 +19,7 @@ import { activateStagedUpdate, rollbackUpdate, stageUpdate, updateStatus } from 
 import { inspectProjectRef, listProjects } from "./projects.js";
 import { CLIENT_VERSION, DEFAULT_CLOUD_URL } from "./constants.js";
 import { acceptAccountPairing, readMaskedPairingCode } from "./pairing.js";
-import { linkFreeAccountFromWorkspace, approvalMatchesGithubLogin, startAgentAccountLink, openAgentAccountBrowser } from "./free-account-link.js";
+import { linkDevice, readCodeFromStdin } from "./device-link.js";
 import readline from "node:readline/promises";
 import {
   exportProjectState,
@@ -28,6 +28,7 @@ import {
   securityStatus
 } from "./secure-store.js";
 
+const ACCOUNT_CENTER_URL = "https://vibe.fde.fan/app/";
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 const args = process.argv.slice(2);
@@ -468,55 +469,33 @@ if (command === "install") {
     console.error("Unknown telemetry action: " + action);
     process.exit(2);
   }
-// Agent-owned account flow: the ONLY human step is browser authorization.
+// The website is the only place a link starts: sign in, Add device, copy prompt.
 } else if (command === "account" && args[1] === "connect") {
-  if (!isOpenClientDistribution()) {
-    console.error("Agent-led account binding is reserved for the public client.");
-    process.exitCode=2;
-  } else {
-    const result=await startAgentAccountLink();
-    if (!result.ok) {
-      if (json) print(result);
-      else console.error("Device connection not started: "+result.reason);
-      process.exitCode=1;
-    } else {
-      const opened=!args.includes("--no-open") &&
-        openAgentAccountBrowser(result.authorizationUrl);
-      if(json)print({status:"waiting_for_browser_approval",
-        ...(!opened?{authorizationUrl:result.authorizationUrl}:{}),
-        opened,expiresAt:result.expiresAt});
-      else console.log(opened
-        ? "Vibe Monitor authorization opened in your browser. Approve this device once."
-        : "Open this Vibe Monitor authorization page to approve your device: "+
-          result.authorizationUrl);
-    }
-  }
-// QA opt-in only. A pairing code must never be passed as a CLI argument.
+  console.log("Sign in at " + ACCOUNT_CENTER_URL + ", choose \"Add device\" and give the copied prompt to your coding Agent.");
+// A pairing code must never be passed as a CLI argument; it arrives on stdin.
 } else if (command === "account" && args[1] === "link") {
   if (args.includes("--code") || args.some(v => v.startsWith("--code="))) {
-    console.error("Do not pass pairing codes via command arguments. Use hidden interactive input.");
+    console.error("Do not pass pairing codes via command arguments. Pipe the code on stdin.");
     process.exitCode = 2;
   } else if (isOpenClientDistribution()) {
     try {
-      const code = await readMaskedPairingCode();
-      // Pairing code is not consent. Show the target account before
-      // reading local telemetry secrets or sending any ownership proof.
-      const result = await linkFreeAccountFromWorkspace({code,
-        confirmTarget:async login => {
-          if(!process.stdin.isTTY || !process.stdout.isTTY) return false;
-          const rl=readline.createInterface({input:process.stdin,output:process.stdout});
-          try {
-            const entered=await rl.question(
-              "Link to GitHub account "+login+"? Type '"+login+"' to approve: "
-            );
-            return approvalMatchesGithubLogin(login,entered);
-          } finally {rl.close();}
-        }
-      });
+      const interactive = process.stdin.isTTY && process.stdout.isTTY;
+      const code = interactive ? await readMaskedPairingCode() : await readCodeFromStdin();
+      let account = optionValue("--account");
+      if (!account && interactive) {
+        const rl = readline.createInterface({input:process.stdin,output:process.stdout});
+        try { account = await rl.question("Account name shown on " + ACCOUNT_CENTER_URL + ": "); }
+        finally { rl.close(); }
+      }
+      if (!account) throw new Error("--account is required (copy it from the website prompt)");
+      // The server can only verify an installation it has already seen.
+      await syncFreeTelemetry({force:true}).catch(() => {});
+      const result = await linkDevice({code, account});
       if (json) print(result);
-      else console.log(result.accepted
-        ? "Device proof accepted. Return to the account dashboard to verify and confirm."
-        : "Account linking not completed: " + result.reason);
+      else if (result.accepted) console.log("Device proof accepted for account " + result.account +
+        ". Return to " + ACCOUNT_CENTER_URL + " and click \"Confirm ownership\".");
+      else console.log("Account linking not completed: " + result.reason +
+        (result.account ? " (code belongs to " + result.account + ")" : ""));
       if (!result.accepted) process.exitCode = 1;
     } catch (error) {
       console.error("Account linking not completed: " + (error?.message || "request_failed"));
