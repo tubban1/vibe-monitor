@@ -14,6 +14,7 @@ The following **derived / bounded / pseudonymous** information may be transmitte
 
 - Random installation, session, call and attempt identifiers, event names, timestamps, client version and coding-Agent family.
 - HMAC-pseudonymized project and finding identifiers; broad source-file/LOC bucket counts, bounded structural signals, finding family/stage and coarse outcome observations.
+- From 1.0.8: per-language source-file buckets (for example `go: 10-49`) from a fixed language list, so language support can be prioritized. A finding's state is re-sent only when its family, stage, attention or action type changes, plus at most one snapshot per day.
 - Product health, installation stage and error codes, actual Agent-integration removal events and bounded OTA stage/result codes.
 - No source text, diff, prompt, chat content, free-form logs, private file names, full paths, repository URLs or secrets.
 
