@@ -5,6 +5,7 @@ import path from "node:path";
 import { CLIENT_VERSION, EVIDENCE_VERSION, SOURCE_LANGUAGE_BY_EXTENSION } from "./constants.js";
 import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { INTENT_FIELDS } from "./intent.js";
+import { ALL_AGENT_NAMES } from "./agent-integrations.js";
 import { isOpenClientDistribution } from "./distribution.js";
 import { buildArchitectureProfile } from "./data-intelligence.js";
 import { getOrCreateSecret, readSecret, writeSecret } from "./secure-store.js";
@@ -604,7 +605,7 @@ export function enqueueLifecycleTelemetry(event, { scope = "full", agents = [], 
   if (!["lifecycle.installed", "lifecycle.uninstalled", "lifecycle.integration_removed"].includes(event)) return null;
   const base = baseEvent(event);
   if (!base) return null;
-  const allowed = new Set(["codex", "claude", "cursor", "antigravity", "trae"]);
+  const allowed = new Set(ALL_AGENT_NAMES);
   const safeAgents = Array.from(new Set(agents.filter(agent => allowed.has(agent))));
   const safeRemaining = Array.from(new Set(remainingAgents.filter(agent => allowed.has(agent))));
   const item = {

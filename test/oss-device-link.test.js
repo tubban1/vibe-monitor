@@ -57,14 +57,33 @@ test("a code for a different account is refused before any device proof is sent"
  assert.equal(s.calls.length,1);
 });
 
-test("legacy Beta installations prove with their existing bearer instead of a key",async()=>{
+test("an upgraded Beta device proves its Free identity by key and its Beta identity by bearer",async()=>{
+ const s=server();
+ const token="vmb_"+"t".repeat(40),LEGACY="22345678-1234-4234-8234-1234567890ab";
+ const result=await linkDevice({code:CODE,account:"alice",fetchImpl:s.fetchImpl,now:()=>NOW,
+  legacy:()=>({installationId:LEGACY,token}),installationId:()=>ID,key:()=>deviceKey(memoryVault())});
+ assert.equal(result.accepted,true);
+ const body=s.calls[1].body;
+ assert.equal(body.installationId,ID);
+ assert.equal(body.legacyInstallationId,LEGACY);
+ assert.ok(body.signature&&body.publicKey);
+ assert.equal(s.calls[1].options.headers.authorization,"Bearer "+token);
+});
+
+test("a Beta-only device without a Free identity still links by bearer",async()=>{
  const s=server();
  const token="vmb_"+"t".repeat(40);
  const result=await linkDevice({code:CODE,account:"alice",fetchImpl:s.fetchImpl,
-  legacy:()=>({installationId:ID,token}),key:()=>{throw new Error("no key for legacy")}});
+  legacy:()=>({installationId:ID,token}),installationId:()=>null,key:()=>{throw new Error("no key without Free identity")}});
  assert.equal(result.accepted,true);
  assert.deepEqual(s.calls[1].body,{code:CODE,installationId:ID});
- assert.equal(s.calls[1].options.headers.authorization,"Bearer "+token);
+});
+
+test("no identity at all is reported without contacting device-link",async()=>{
+ const s=server();
+ const r=await linkDevice({code:CODE,account:"alice",fetchImpl:s.fetchImpl,legacy:noLegacy,installationId:()=>null});
+ assert.equal(r.reason,"installation_identity_not_found");
+ assert.equal(s.calls.length,1);
 });
 
 test("server rejections map to stable reasons",async()=>{

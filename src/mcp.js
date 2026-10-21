@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { ALL_AGENT_NAMES } from "./agent-integrations.js";
 import nodePath from "node:path";
 import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -348,7 +349,7 @@ export function initializeMcpTelemetry() {
 export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   initializeMcpTelemetry();
   const server = new McpServer({ name: "vibe-monitor", version: CLIENT_VERSION });
-  const allowedAgents = new Set(["codex", "claude", "cursor", "antigravity", "trae"]);
+  const allowedAgents = new Set(ALL_AGENT_NAMES);
   const agent = allowedAgents.has(explicitAgent) ? explicitAgent : detectAgentHost();
   const sessionId = crypto.randomUUID();
   const budget = createMonitoringBudgetSession();
