@@ -2,8 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import {Readable} from "node:stream";
-import {readFileSync} from "node:fs";
-import {deviceKey,deviceLinkMessage,linkDevice,readCodeFromStdin,accountMatches} from "../src/device-link.js";
+import fs,{readFileSync} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {writeSecret} from "../src/secure-store.js";
+import {deviceKey,deviceLinkMessage,linkDevice,readCodeFromStdin,accountMatches,localLegacyBetaIdentity} from "../src/device-link.js";
 
 const CODE="ab".repeat(32);
 const ID="12345678-1234-4234-8234-1234567890ab";
@@ -90,4 +93,23 @@ test("CLI rejects --code arguments and requires --account when not interactive",
  assert.match(cli,/Do not pass pairing codes via command arguments/);
  assert.match(cli,/--account is required/);
  assert.match(cli,/readCodeFromStdin\(\)/);
+});
+
+test("legacy Beta credential is read only for the official Cloud and a well-formed token",t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"vm-legacy-beta-"));
+ const old={home:process.env.VIBE_MONITOR_HOME,vault:process.env.VIBE_MONITOR_TEST_SECRET_DIR};
+ t.after(()=>{for(const [k,v] of [["VIBE_MONITOR_HOME",old.home],["VIBE_MONITOR_TEST_SECRET_DIR",old.vault]])
+  if(v===undefined)delete process.env[k];else process.env[k]=v;fs.rmSync(dir,{recursive:true,force:true});});
+ const home=path.join(dir,"home"),vault=path.join(dir,"vault");
+ fs.mkdirSync(path.join(home,"cloud"),{recursive:true});fs.mkdirSync(vault,{recursive:true});
+ process.env.VIBE_MONITOR_HOME=home;process.env.VIBE_MONITOR_TEST_SECRET_DIR=vault;
+ const client=baseUrl=>fs.writeFileSync(path.join(home,"cloud","client.json"),JSON.stringify({schemaVersion:1,installationId:ID,baseUrl}));
+ assert.equal(localLegacyBetaIdentity(),null,"no client file");
+ client("https://vibe-api.fde.fan");
+ writeSecret("cloud-installation-token","not-a-token");
+ assert.equal(localLegacyBetaIdentity(),null,"malformed token");
+ const token="vmb_"+"a".repeat(43);writeSecret("cloud-installation-token",token);
+ assert.deepEqual(localLegacyBetaIdentity(),{installationId:ID,token});
+ client("https://evil.example");
+ assert.equal(localLegacyBetaIdentity(),null,"foreign Cloud URL");
 });

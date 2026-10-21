@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import path from "node:path";
 import {vibeHome,safeJsonRead} from "./utils.js";
 import {readSecret,writeSecret} from "./secure-store.js";
-import {localLegacyBetaIdentity} from "./free-account-link.js";
 
 // Unified account link: the browser mints a one-time code, the user's Agent
 // runs `account link --account <name>` with the code on stdin, and this
@@ -28,6 +27,18 @@ export function deviceKey({read=readSecret,write=writeSecret}={}){
  }
  const publicKey=crypto.createPublicKey(privateKey).export({type:"spki",format:"der"}).toString("base64");
  return {privateKey,publicKey};
+}
+
+// An upgraded Beta41 installation keeps its private installation credential
+// in the OS vault; the server already knows it as a SHA-256 hash.
+export function localLegacyBetaIdentity(){
+ const client=safeJsonRead(path.join(vibeHome(),"cloud","client.json"),null);
+ const token=readSecret("cloud-installation-token");
+ if(!UUID.test(client?.installationId||"")||
+    typeof token!=="string"||!/^vmb_[A-Za-z0-9_-]{32,256}$/.test(token)||
+    client?.baseUrl!=="https://vibe-api.fde.fan")
+  return null;
+ return {installationId:client.installationId,token};
 }
 
 export function localInstallationId(){
