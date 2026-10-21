@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { analyzeProject, buildVibeCoderBrief } from "./engine.js";
 import { buildDisabledPolicyPayload, applyMonitoringPolicy, runMcpServer } from "./mcp.js";
 import { installSetup, uninstallSetup, classifyUninstallLifecycle } from "./setup.js";
+import { ALL_AGENT_NAMES } from "./agent-integrations.js";
 import { activityCursor, formatActivity, readActivity, readActivityFrom } from "./activity.js";
 import { inspectTelemetryQueue, setTelemetryEnabled, setDataIntelligenceEnabled, initializeFreeTelemetry, telemetryStatus, enqueueLifecycleStageTelemetry } from "./telemetry.js";
 import { loadCloudClient, cloudStatus, fetchRemotePolicy, registerCloud, syncTelemetry, syncFreeTelemetry, reportLifecycleEvent } from "./cloud.js";
@@ -45,13 +46,7 @@ function optionValue(name, fallback = null) {
   return args[index + 1];
 }
 function selectedAgents() {
-  const flags = [
-    ["--codex", "codex"],
-    ["--claude", "claude"],
-    ["--cursor", "cursor"],
-    ["--antigravity", "antigravity"],
-    ["--trae", "trae"]
-  ];
+  const flags = ALL_AGENT_NAMES.map(name => ["--" + name, name]);
   const selected = flags.filter(([flag]) => args.includes(flag)).map(([, name]) => name);
   return selected.length ? selected : undefined;
 }
