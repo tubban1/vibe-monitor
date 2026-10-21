@@ -1,6 +1,6 @@
 {
   "name": "@vibe-monitor/setup",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "private": false,
   "description": "Vibe Monitor open-source architecture intelligence client",
   "type": "module",

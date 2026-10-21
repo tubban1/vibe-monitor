@@ -46,9 +46,12 @@ export function localInstallationId(){
  return UUID.test(identity?.installationId||"")?identity.installationId:null;
 }
 
+// cmd.exe passes single quotes through literally ('a@b.c'), so strip one
+// pair of surrounding quotes before comparing.
+const unquote=s=>s.trim().replace(/^(['"])(.*)\1$/,"$2").trim();
 export function accountMatches(expected,actual){
- return typeof expected==="string"&&typeof actual==="string"&&expected.trim().length>0&&
-  expected.trim().toLowerCase()===actual.trim().toLowerCase();
+ return typeof expected==="string"&&typeof actual==="string"&&unquote(expected).length>0&&
+  unquote(expected).toLowerCase()===actual.trim().toLowerCase();
 }
 
 export async function readCodeFromStdin(input=process.stdin,limit=1024){
@@ -105,7 +108,12 @@ export async function linkDevice({code,account,fetchImpl=fetch,now=()=>Date.now(
  try{
   const res=await post(fetchImpl,"device-link",body,headers);
   if(res.status===200)return {accepted:true,account:preview.account,status:"waiting_for_web_confirmation"};
-  if(res.status===409)return {accepted:false,reason:"code_used_or_device_already_linked"};
+  if(res.status===409){
+   // Newer servers say why; older ones only return 409.
+   const why=await res.json().then(d=>d?.error,()=>null);
+   const known=["invalid_or_used_code","device_already_linked","device_key_mismatch","unknown_installation"];
+   return {accepted:false,reason:known.includes(why)?why:"code_used_or_device_already_linked"};
+  }
   if(res.status===401)return {accepted:false,reason:"device_proof_rejected"};
   if(res.status===503)return {accepted:false,reason:"account_linking_not_enabled"};
   return {accepted:false,reason:"account_linking_unavailable"};

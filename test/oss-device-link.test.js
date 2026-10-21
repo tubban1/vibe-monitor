@@ -105,6 +105,9 @@ test("account comparison is exact apart from case and surrounding space",()=>{
  assert.equal(accountMatches(" Alice@Example.org ","alice@example.org"),true);
  assert.equal(accountMatches("alice","alice2"),false);
  assert.equal(accountMatches("","alice"),false);
+ assert.equal(accountMatches("'liang@example.org'","liang@example.org"),true,"cmd keeps single quotes");
+ assert.equal(accountMatches('"liang@example.org"',"liang@example.org"),true);
+ assert.equal(accountMatches("''","x"),false);
 });
 
 test("CLI rejects --code arguments and requires --account when not interactive",()=>{
@@ -131,4 +134,12 @@ test("legacy Beta credential is read only for the official Cloud and a well-form
  assert.deepEqual(localLegacyBetaIdentity(),{installationId:ID,token});
  client("https://evil.example");
  assert.equal(localLegacyBetaIdentity(),null,"foreign Cloud URL");
+});
+
+test("a 409 reports the server's specific reason when it gives one",async()=>{
+ for(const [body,reason] of [[{error:"unknown_installation"},"unknown_installation"],[{error:"device_key_mismatch"},"device_key_mismatch"],[{},"code_used_or_device_already_linked"]]){
+  const fetchImpl=async url=>url.endsWith("pair-preview")?new Response(JSON.stringify({account:"alice"}),{status:200}):new Response(JSON.stringify(body),{status:409});
+  const r=await linkDevice({code:CODE,account:"alice",fetchImpl,legacy:noLegacy,installationId:()=>ID,key:()=>deviceKey(memoryVault())});
+  assert.equal(r.reason,reason);
+ }
 });
