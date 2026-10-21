@@ -78,6 +78,19 @@ test("install is idempotent and uninstall removes only what Vibe Monitor wrote",
  assert.equal(fs.existsSync(path.join(s.home,".kiro","steering","vibe-monitor.md")),false);
 });
 
+test("a sandboxed setup home never writes through real APPDATA or XDG_CONFIG_HOME",t=>{
+ const s=sandbox(t);
+ const outside=fs.mkdtempSync(path.join(os.tmpdir(),"vm-real-profile-"));
+ const old={a:process.env.APPDATA,x:process.env.XDG_CONFIG_HOME};
+ process.env.APPDATA=outside;process.env.XDG_CONFIG_HOME=outside;
+ t.after(()=>{for(const [k,v] of [["APPDATA",old.a],["XDG_CONFIG_HOME",old.x]])if(v===undefined)delete process.env[k];else process.env[k]=v;
+  fs.rmSync(outside,{recursive:true,force:true});});
+ s.mk(".config/opencode");fs.mkdirSync(s.user,{recursive:true});
+ installSetup({...spec,agents:["opencode","copilot"]});
+ assert.deepEqual(fs.readdirSync(outside),[]);
+ assert.ok(fs.existsSync(path.join(s.home,".config","opencode","opencode.json")));
+});
+
 test("VS Code-family profile directories follow each OS convention",()=>{
  assert.match(vscodeUserDirs("/h","darwin",{})[0].dir,/\/h\/Library\/Application Support\/Code\/User$/);
  assert.equal(vscodeUserDirs("/h","win32",{APPDATA:"C:\\Users\\a\\AppData\\Roaming"})[0].dir,path.join("C:\\Users\\a\\AppData\\Roaming","Code","User"));

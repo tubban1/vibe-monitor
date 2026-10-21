@@ -346,10 +346,13 @@ function createAgentAdapters(home, spec) {
       ]
     }
   };
+  // A setup-home override (tests, sandboxes) must never reach real profile
+  // directories through APPDATA or XDG_CONFIG_HOME.
+  const env = process.env.VIBE_MONITOR_SETUP_HOME ? {} : process.env;
   const extra = extraAgentAdapters(home, spec, {
     writeMcpJson, removeMcpJson, hasMcp: hasMcpEntry, appendManagedBlock, removeManagedBlock,
     hasBlock: hasManagedBlock, writeOwnedFile, removeOwnedFile, commandExists, specForAgent, instruction: INSTRUCTION
-  });
+  }, process.platform, env);
   return { ...core, ...extra };
 }
 
