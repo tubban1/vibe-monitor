@@ -1,5 +1,5 @@
 export const EVIDENCE_VERSION = 7;
-export const CLIENT_VERSION = "1.0.8";
+export const CLIENT_VERSION = "1.0.9";
 export const DEFAULT_CLOUD_URL = "https://vibe-api.fde.fan";
 
 // Language of each scanned extension, for the per-language demand signal.
