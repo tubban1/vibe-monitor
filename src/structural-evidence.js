@@ -1,22 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import Parser from "tree-sitter";
-import JavaScript from "tree-sitter-javascript";
-import TypeScript from "tree-sitter-typescript";
-import Python from "tree-sitter-python";
 import { RESPONSIBILITY_PATTERNS } from "./constants.js";
-
-const FUNCTION_TYPES = new Set([
-  "function_declaration",
-  "generator_function_declaration",
-  "function_expression",
-  "generator_function",
-  "arrow_function",
-  "method_definition",
-  "function_definition"
-]);
-
-const CALL_TYPES = new Set(["call_expression", "call"]);
+import { resolveLanguage, supportsLanguage } from "./languages.js";
 
 const RESPONSIBILITY_GROUPS = Object.freeze({
   presentation: new Set(["ui", "rendering"]),
@@ -27,17 +13,8 @@ const RESPONSIBILITY_GROUPS = Object.freeze({
   delivery: new Set(["export"])
 });
 
-function grammarFor(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === ".ts") return { language: "typescript", grammar: TypeScript.typescript };
-  if (ext === ".tsx") return { language: "tsx", grammar: TypeScript.tsx };
-  if ([".js", ".jsx", ".mjs", ".cjs"].includes(ext)) return { language: "javascript", grammar: JavaScript };
-  if (ext === ".py") return { language: "python", grammar: Python };
-  return null;
-}
-
 export function supportsStructuralEvidence(filePath) {
-  return Boolean(grammarFor(filePath));
+  return supportsLanguage(filePath);
 }
 
 function nodeText(source, node) {
@@ -63,14 +40,14 @@ function groupForResponsibilities(names) {
   return best || "domain";
 }
 
-function walk(node, visit, { stopAtNestedFunctions = false, rootFunction = null } = {}) {
+function walk(node, visit, { stopAtNestedFunctions = false, rootFunction = null, functionTypes = null } = {}) {
   const stack = [node];
   while (stack.length) {
     const current = stack.pop();
     if (
       stopAtNestedFunctions &&
       current !== rootFunction &&
-      FUNCTION_TYPES.has(current.type)
+      functionTypes?.has(current.type)
     ) {
       continue;
     }
@@ -82,18 +59,13 @@ function walk(node, visit, { stopAtNestedFunctions = false, rootFunction = null 
   }
 }
 
-function functionName(node, source) {
+function functionName(node, source, adapter) {
   const direct = node.childForFieldName?.("name");
   if (direct) return nodeText(source, direct).trim();
-
-  const parent = node.parent;
-  if (parent?.type === "variable_declarator") {
-    const name = parent.childForFieldName?.("name");
+  const field = adapter.nameParents[node.parent?.type];
+  if (field) {
+    const name = node.parent.childForFieldName?.(field);
     if (name) return nodeText(source, name).trim();
-  }
-  if (parent?.type === "pair") {
-    const key = parent.childForFieldName?.("key");
-    if (key) return nodeText(source, key).trim();
   }
   return null;
 }
@@ -105,23 +77,15 @@ function callTarget(node, source) {
   return /^[A-Za-z_$][\w$]*$/.test(text) ? text : null;
 }
 
-function structuralImports(root, source, language) {
+function structuralImports(root, source, adapter) {
   const specs = new Set();
   let count = 0;
+  const text = node => nodeText(source, node);
   walk(root, node => {
-    if (language === "python") {
-      if (node.type !== "import_statement" && node.type !== "import_from_statement") return;
-      count += 1;
-      const text = nodeText(source, node);
-      const match = text.match(/^\s*from\s+([A-Za-z0-9_.]+)/) || text.match(/^\s*import\s+([A-Za-z0-9_.]+)/);
-      if (match) specs.add(match[1]);
-      return;
-    }
-
-    if (node.type !== "import_statement") return;
+    const spec = adapter.importSpec(node, text);
+    if (spec === undefined) return;
     count += 1;
-    const sourceNode = node.childForFieldName?.("source");
-    if (sourceNode) specs.add(nodeText(source, sourceNode).replace(/^["']|["']$/g, ""));
+    if (spec) specs.add(spec);
   });
   return { count, specs: [...specs] };
 }
@@ -135,26 +99,25 @@ function countErrors(root) {
 }
 
 export function analyzeStructuralFile(absolutePath, relativePath = absolutePath) {
-  const languageConfig = grammarFor(relativePath);
-  if (!languageConfig) return null;
-
-  const source = fs.readFileSync(absolutePath, "utf8");
+  const resolved = resolveLanguage(relativePath, () => fs.readFileSync(absolutePath, "utf8"));
+  if (!resolved) return null;
+  const { adapter, source, lineOffset } = resolved;
   const parser = new Parser();
-  parser.setLanguage(languageConfig.grammar);
+  parser.setLanguage(adapter.grammar);
   const tree = parser.parse(source);
   const root = tree.rootNode;
 
   const functions = [];
   walk(root, node => {
-    if (!FUNCTION_TYPES.has(node.type)) return;
-    const name = functionName(node, source);
+    if (!adapter.functionTypes.has(node.type)) return;
+    const name = functionName(node, source, adapter);
     const text = nodeText(source, node);
     const responsibilities = responsibilityNames(text);
     functions.push({
       name,
       group: groupForResponsibilities(responsibilities),
       responsibilityCount: responsibilities.length,
-      line: node.startPosition?.row + 1 || 1,
+      line: (node.startPosition?.row + 1 || 1) + lineOffset,
       node
     });
   });
@@ -178,7 +141,7 @@ export function analyzeStructuralFile(absolutePath, relativePath = absolutePath)
 
   for (const fn of namedFunctions) {
     walk(fn.node, node => {
-      if (!CALL_TYPES.has(node.type)) return;
+      if (!adapter.callTypes.has(node.type)) return;
       const target = callTarget(node, source);
       if (!target || !localNames.has(target) || target === fn.name) return;
       const edgeKey = fn.name + "->" + target;
@@ -193,7 +156,7 @@ export function analyzeStructuralFile(absolutePath, relativePath = absolutePath)
       } else {
         crossByGroup[fromGroup] = (crossByGroup[fromGroup] || 0) + 1;
       }
-    }, { stopAtNestedFunctions: true, rootFunction: fn.node });
+    }, { stopAtNestedFunctions: true, rootFunction: fn.node, functionTypes: adapter.functionTypes });
   }
 
   const boundaryCandidates = Object.entries(groupCounts)
@@ -216,14 +179,14 @@ export function analyzeStructuralFile(absolutePath, relativePath = absolutePath)
     )
     .slice(0, 4);
 
-  const imports = structuralImports(root, source, languageConfig.language);
+  const imports = structuralImports(root, source, adapter);
   const responsibilityClusterCount = Object.entries(groupCounts)
     .filter(([group, count]) => group !== "domain" && count >= 2)
     .length;
 
   return {
     parser: "tree-sitter",
-    language: languageConfig.language,
+    language: resolved.language,
     parseErrors: countErrors(root),
     functionCount: functions.length,
     namedFunctionCount: namedFunctions.length,
