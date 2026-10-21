@@ -87,19 +87,21 @@ export async function linkDevice({code,account,fetchImpl=fetch,now=()=>Date.now(
  if(!preview.ok)return {accepted:false,reason:preview.reason};
  if(!accountMatches(account,preview.account))
   return {accepted:false,reason:"pairing_code_belongs_to_another_account",account:preview.account};
+ // The Free telemetry identity is where 1.0.x reports, so it is always the
+ // primary proof. An upgraded Beta credential, when present, is proven in the
+ // same request so the account sees the device's history as one device.
  let body,headers={};
- const beta=legacy();
- if(beta){
-  body={code,installationId:beta.installationId};
-  headers.authorization="Bearer "+beta.token;
- }else{
-  const id=installationId();
-  if(!id)return {accepted:false,reason:"installation_identity_not_found"};
+ const beta=legacy(),id=installationId();
+ if(id){
   const {privateKey,publicKey}=key();
   const signedAt=new Date(now()).toISOString();
   const signature=crypto.sign(null,Buffer.from(deviceLinkMessage(code,id,signedAt)),privateKey).toString("base64");
   body={code,installationId:id,publicKey,signedAt,signature};
- }
+  if(beta&&beta.installationId!==id){body.legacyInstallationId=beta.installationId;headers.authorization="Bearer "+beta.token;}
+ }else if(beta){
+  body={code,installationId:beta.installationId};
+  headers.authorization="Bearer "+beta.token;
+ }else return {accepted:false,reason:"installation_identity_not_found"};
  try{
   const res=await post(fetchImpl,"device-link",body,headers);
   if(res.status===200)return {accepted:true,account:preview.account,status:"waiting_for_web_confirmation"};
