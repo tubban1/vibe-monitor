@@ -92,7 +92,7 @@ test("a sandboxed setup home never writes through real APPDATA or XDG_CONFIG_HOM
 });
 
 test("VS Code-family profile directories follow each OS convention",()=>{
- assert.match(vscodeUserDirs("/h","darwin",{})[0].dir,/\/h\/Library\/Application Support\/Code\/User$/);
+ assert.equal(vscodeUserDirs("/h","darwin",{})[0].dir,path.join("/h","Library","Application Support","Code","User"));
  assert.equal(vscodeUserDirs("/h","win32",{APPDATA:"C:\\Users\\a\\AppData\\Roaming"})[0].dir,path.join("C:\\Users\\a\\AppData\\Roaming","Code","User"));
  assert.equal(vscodeUserDirs("/h","linux",{})[0].dir,path.join("/h",".config","Code","User"));
 });
