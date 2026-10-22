@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution } from "./distribution.js";
+import { verifiedStableInstallationId } from "./beta-stable-handoff.js";
 import { telemetryStatus, enqueueLifecycleStageTelemetry } from "./telemetry.js";
 import {
   cloudStatus,
@@ -152,7 +153,7 @@ function freeUpdateEligible(manifest){
  // Do not mix those namespaces: target only a confirmed linked installation
  // and leave the legacy public v1 rollout bucket unchanged.
  const installationId=manifest?.schemaVersion===2
-  ?cloudStatus().installationId
+  ?verifiedStableInstallationId()
   :telemetryStatus().installationId;
  return signedUpdateEligibleForInstallation(manifest,installationId);
 }

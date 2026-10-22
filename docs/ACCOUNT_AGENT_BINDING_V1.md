@@ -1,3 +1,5 @@
+> **Superseded** by [ACCOUNT_LINKING.md](ACCOUNT_LINKING.md) from 1.0.7.
+
 # Agent-led device binding v1 — one human approval
 
 Status: source staged for a subsequent audited Free client release. Published `@vibe-monitor/setup@1.0.3` is unchanged. Production disabled unless `ACCOUNT_AGENT_LINK_ENABLED=1`, migration 023 applied, and GitHub pilot allowlist active.

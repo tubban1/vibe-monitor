@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import JSON5 from "json5";
 import {CLIENT_VERSION} from "./constants.js";
+import {ALL_AGENT_NAMES, EXTRA_AGENT_NAMES, extraAgentAdapters} from "./agent-integrations.js";
 
 const START = "<!-- vibe-monitor:start -->";
 const END = "<!-- vibe-monitor:end -->";
@@ -81,12 +82,14 @@ function removeManagedBlock(file) {
   clearOwned(file);
   return true;
 }
-function readJson(file) {
+function readJson(file, { strict = false } = {}) {
   if (!fs.existsSync(file)) return { ok: true, value: {} };
   const raw = fs.readFileSync(file, "utf8");
   if (!raw.trim()) return { ok: true, value: {} };
   try { return { ok: true, value: JSON.parse(raw) }; }
   catch {
+    // Strict callers never rewrite JSONC: comments would be lost.
+    if (strict) return { ok: false, value: null };
     try { return { ok: true, value: JSON5.parse(raw) }; }
     catch { return { ok: false, value: null }; }
   }
@@ -108,16 +111,16 @@ function clearOwned(file) { fs.rmSync(ownerPath(file), {force:true}); }
 function refuseConflict(file) {
   return {changed:false,file,manualRequired:true,error:"existing_vibe_monitor_registration_preserved"};
 }
-function writeMcpJson(file, serverConfig) {
+function writeMcpJson(file, serverConfig, { key = "mcpServers", strict = false } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const parsed = readJson(file);
+  const parsed = readJson(file, { strict });
   if (!parsed.ok) return {changed:false,file,manualRequired:true,error:"existing_config_not_strict_json_preserved"};
   const json = parsed.value;
   if (!json || typeof json !== "object" || Array.isArray(json) ||
-      (json.mcpServers !== undefined && (!json.mcpServers || typeof json.mcpServers !== "object" || Array.isArray(json.mcpServers))))
+      (json[key] !== undefined && (!json[key] || typeof json[key] !== "object" || Array.isArray(json[key]))))
     return refuseConflict(file);
-  json.mcpServers ||= {};
-  const previous = json.mcpServers["vibe-monitor"];
+  json[key] ||= {};
+  const previous = json[key]["vibe-monitor"];
   const expected = JSON.stringify(serverConfig);
   if (previous !== undefined) {
     const actual = JSON.stringify(previous);
@@ -125,20 +128,20 @@ function writeMcpJson(file, serverConfig) {
     if (!isOwned(file, actual)) return refuseConflict(file);
   }
   backup(file);
-  json.mcpServers["vibe-monitor"] = serverConfig;
+  json[key]["vibe-monitor"] = serverConfig;
   fs.writeFileSync(file, JSON.stringify(json,null,2) + "\n", "utf8");
   markOwned(file, expected);
   return {changed:true,file};
 }
-function removeMcpJson(file) {
+function removeMcpJson(file, { key = "mcpServers", strict = false } = {}) {
   if (!fs.existsSync(file)) return false;
-  const parsed = readJson(file);
+  const parsed = readJson(file, { strict });
   if (!parsed.ok) return false;
   const json = parsed.value;
-  const previous = json?.mcpServers?.["vibe-monitor"];
+  const previous = json?.[key]?.["vibe-monitor"];
   if (previous === undefined || !isOwned(file, JSON.stringify(previous))) return false;
   backup(file);
-  delete json.mcpServers["vibe-monitor"];
+  delete json[key]["vibe-monitor"];
   fs.writeFileSync(file, JSON.stringify(json,null,2) + "\n", "utf8");
   clearOwned(file);
   return true;
@@ -218,7 +221,7 @@ export function runtimeSpec(options = {}) {
   return { command: "npx", args: ["-y", "--registry=https://registry.npmjs.org",
     `@vibe-monitor/setup@${CLIENT_VERSION}`, "mcp"] };
 }
-export const AGENT_ADAPTER_NAMES = Object.freeze(["codex", "claude", "cursor", "antigravity", "trae"]);
+export const AGENT_ADAPTER_NAMES = ALL_AGENT_NAMES;
 
 // TRAE's user-level MCP config is distinct from ~/.trae/mcps (tool cache).
 // Keep Vibe global and do not write into monitored project directories.
@@ -252,7 +255,7 @@ function createAgentAdapters(home, spec) {
   const antigravitySpec = specForAgent(spec, "antigravity");
   const traeSpec = specForAgent(spec, "trae");
 
-  return {
+  const core = {
     codex: {
       detect: () => fs.existsSync(path.join(home, ".codex")) || commandExists("codex"),
       plan: () => [
@@ -343,6 +346,25 @@ function createAgentAdapters(home, spec) {
       ]
     }
   };
+  // A setup-home override (tests, sandboxes) must never reach real profile
+  // directories through APPDATA or XDG_CONFIG_HOME.
+  const env = process.env.VIBE_MONITOR_SETUP_HOME ? {} : process.env;
+  const extra = extraAgentAdapters(home, spec, {
+    writeMcpJson, removeMcpJson, hasMcp: hasMcpEntry, appendManagedBlock, removeManagedBlock,
+    hasBlock: hasManagedBlock, writeOwnedFile, removeOwnedFile, commandExists, specForAgent, instruction: INSTRUCTION
+  }, process.platform, env);
+  return { ...core, ...extra };
+}
+
+function hasManagedBlock(file) {
+  try { return fs.existsSync(file) && fs.readFileSync(file, "utf8").includes(START); }
+  catch { return null; }
+}
+function hasMcpEntry(file, key = "mcpServers") {
+  try {
+    const parsed = readJson(file);
+    return parsed.ok ? Boolean(parsed.value?.[key]?.["vibe-monitor"]) : null;
+  } catch { return null; }
 }
 
 export function detectAgents() {
@@ -401,6 +423,8 @@ export function managedIntegrations() {
     hasBlock(path.join(home, ".gemini", "GEMINI.md"))]);
   result.claude = combine([hasMcp(path.join(home, ".claude.json")),
     hasBlock(path.join(home, ".claude", "CLAUDE.md"))]);
+  const extra = createAgentAdapters(home, runtimeSpec({}));
+  for (const name of EXTRA_AGENT_NAMES) result[name] = extra[name].status();
   return result;
 }
 

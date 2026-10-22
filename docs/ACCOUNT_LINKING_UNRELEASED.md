@@ -1,3 +1,5 @@
+> **Superseded** by [ACCOUNT_LINKING.md](ACCOUNT_LINKING.md) from 1.0.7.
+
 # Account linking for existing Free installations — not yet released
 
 This feature is **staged in source only**. Published `@vibe-monitor/setup@1.0.2` does not support Free account linking. Do not ask users to use the new command until a separately reviewed package version is published.

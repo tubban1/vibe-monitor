@@ -27,6 +27,11 @@ function activeContext(){
   stableInstallationId:journal.stableInstallationId,deviceId:device.deviceId};
 }
 
+export function verifiedStableInstallationId(){
+ if(!verifiedBetaHandoffInstalled())return null;
+ return activeContext()?.stableInstallationId||null;
+}
+
 export function verifiedBetaHandoffInstalled(){
  if(!fs.existsSync(file("cloud","client.json")))return false;
  const ctx=activeContext(),receipt=safeJsonRead(receiptFile(),null);

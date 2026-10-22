@@ -8,13 +8,13 @@
     "url": "https://github.com/tubban1/vibe-monitor",
     "source": "github"
   },
-  "version": "1.0.5",
+  "version": "1.0.11",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@vibe-monitor/setup",
-      "version": "1.0.5",
+      "version": "1.0.11",
       "transport": {
         "type": "stdio"
       },

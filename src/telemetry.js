@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import {encodeEvidenceQuality} from "./telemetry-quality.js";
 import fs from "node:fs";
 import path from "node:path";
-import { CLIENT_VERSION, EVIDENCE_VERSION } from "./constants.js";
-import { ensureDir, safeJsonRead, vibeHome } from "./utils.js";
+import { CLIENT_VERSION, EVIDENCE_VERSION, SOURCE_LANGUAGE_BY_EXTENSION } from "./constants.js";
+import { atomicJsonWrite, ensureDir, safeJsonRead, vibeHome } from "./utils.js";
 import { INTENT_FIELDS } from "./intent.js";
+import { ALL_AGENT_NAMES } from "./agent-integrations.js";
 import { isOpenClientDistribution } from "./distribution.js";
 import { buildArchitectureProfile } from "./data-intelligence.js";
 import { getOrCreateSecret, readSecret, writeSecret } from "./secure-store.js";
@@ -48,6 +49,41 @@ const MAX_FINDINGS_PER_OBSERVATION = 50;
 
 function telemetryDir() {
   return path.join(vibeHome(), isOpenClientDistribution() ? "free-telemetry" : "telemetry");
+}
+
+// finding.observed was 88% of all Cloud events: every scan re-sent every
+// finding. Re-send only when what matters changes, plus one daily snapshot so
+// the Cloud can still rebuild each project's current state. Local state holds
+// pseudonymous IDs only.
+const FINDING_SNAPSHOT_MS = 24 * 3600_000;
+const FINDING_STATE_IDLE_MS = 30 * 86400_000;
+function findingFingerprint(finding) {
+  return [finding.family || "", finding.stage || "", finding.requiresAttention ? 1 : 0,
+    classifyActionMode(finding) || ""].join("|");
+}
+export function observedFindingFilter(projectId, { now = Date.now(), file = path.join(telemetryDir(), "finding-observed-state.json") } = {}) {
+  const state = safeJsonRead(file, null);
+  const projects = state?.schemaVersion === 1 && state.projects && typeof state.projects === "object" ? state.projects : {};
+  const seen = projects[projectId] && typeof projects[projectId] === "object" ? { ...projects[projectId] } : {};
+  let changed = false;
+  return {
+    shouldEmit(finding) {
+      if (!projectId || !finding?.id) return true;
+      const fp = findingFingerprint(finding), prev = seen[finding.id];
+      if (prev && prev.fp === fp && now - prev.at < FINDING_SNAPSHOT_MS) return false;
+      seen[finding.id] = { fp, at: now };
+      changed = true;
+      return true;
+    },
+    save() {
+      if (!changed) return;
+      projects[projectId] = seen;
+      for (const [id, findings] of Object.entries(projects))
+        if (!Object.values(findings).some(x => now - Number(x?.at) < FINDING_STATE_IDLE_MS)) delete projects[id];
+      try { ensureDir(path.dirname(file)); atomicJsonWrite(file, { schemaVersion: 1, projects }); }
+      catch { /* worst case: an unchanged finding is sent again */ }
+    }
+  };
 }
 
 function configFile() {
@@ -291,6 +327,20 @@ function telemetryIntent(productIntent) {
   return { intent, inferredIntent, intentProvenance };
 }
 
+const SOURCE_LANGUAGES = new Set(Object.values(SOURCE_LANGUAGE_BY_EXTENSION));
+const SOURCE_FILE_BUCKETS = new Set(["1-9", "10-49", "50-199", "200-999", "1000+"]);
+function languageFileBucket(n) {
+  return n < 10 ? "1-9" : n < 50 ? "10-49" : n < 200 ? "50-199" : n < 1000 ? "200-999" : "1000+";
+}
+export function sourceLanguageBuckets(counts) {
+  if (!counts || typeof counts !== "object") return [];
+  return Object.entries(counts)
+    .filter(([language, n]) => SOURCE_LANGUAGES.has(language) && Number.isSafeInteger(n) && n > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, 16)
+    .map(([language, n]) => ({ language, files: languageFileBucket(n) }));
+}
+
 function scanPayload(result, { dataIntelligenceEnabled = false } = {}) {
   const summary = result?.summary || {};
   const architectureProfile = dataIntelligenceEnabled ? buildArchitectureProfile(result) : null;
@@ -316,6 +366,7 @@ function scanPayload(result, { dataIntelligenceEnabled = false } = {}) {
     totalLocBucket: metricBucket(summary.totalLoc),
     productionDependenciesBucket: metricBucket(summary.productionDependencies),
     testFilesBucket: metricBucket(summary.testFiles),
+    sourceLanguages: sourceLanguageBuckets(summary.sourceLanguages),
     graph: {
       edgeCountBucket: metricBucket(result?.graph?.edgeCount),
       cycleCountBucket: metricBucket(result?.graph?.cycleCount),
@@ -554,7 +605,7 @@ export function enqueueLifecycleTelemetry(event, { scope = "full", agents = [], 
   if (!["lifecycle.installed", "lifecycle.uninstalled", "lifecycle.integration_removed"].includes(event)) return null;
   const base = baseEvent(event);
   if (!base) return null;
-  const allowed = new Set(["codex", "claude", "cursor", "antigravity", "trae"]);
+  const allowed = new Set(ALL_AGENT_NAMES);
   const safeAgents = Array.from(new Set(agents.filter(agent => allowed.has(agent))));
   const safeRemaining = Array.from(new Set(remainingAgents.filter(agent => allowed.has(agent))));
   const item = {
@@ -662,9 +713,10 @@ export function enqueueActivityTelemetry(activityItem, transitions = [], result 
       });
     }
 
+    const observed = observedFindingFilter(activityItem.projectId);
     for (const finding of (result.findings || []).slice(0, MAX_FINDINGS_PER_OBSERVATION)) {
       const findingBase = baseEvent("finding.observed", activityItem.projectId, finding.id, context, telemetryConfig);
-      if (!findingBase) continue;
+      if (!findingBase || !observed.shouldEmit(finding)) continue;
       queued.push({
         ...findingBase,
         agent: activityItem.agent || "unknown",
@@ -675,6 +727,7 @@ export function enqueueActivityTelemetry(activityItem, transitions = [], result 
         payload: findingPayload(finding)
       });
     }
+    observed.save();
   }
 
   for (const transition of transitions || []) {
@@ -988,6 +1041,12 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
    if(Array.isArray(input.languages))structural.languages=input.languages
       .map(enumValue).filter(Boolean).slice(0,12);
    payload.structural=structural;
+  }
+  if(Array.isArray(e.payload?.sourceLanguages)&&e.event==="scan.observed"){
+   const seen=new Set();
+   payload.sourceLanguages=e.payload.sourceLanguages.filter(x=>x&&SOURCE_LANGUAGES.has(x.language)&&
+     SOURCE_FILE_BUCKETS.has(x.files)&&!seen.has(x.language)&&seen.add(x.language))
+    .slice(0,16).map(x=>({language:x.language,files:x.files}));
   }
   if(Array.isArray(e.payload?.signals))payload.signals=e.payload.signals.slice(0,24)
     .map(signal=>{

@@ -116,7 +116,13 @@ jobs:
       - name: Verify stable npm dist-tag
         env:
           VERSION: ${{ inputs.expected_version }}
-        run: test "$(npm view @vibe-monitor/setup dist-tags.latest --prefer-online)" = "$VERSION"
+        # The registry can take several minutes to expose a fresh publish (1.0.7 took ~6).
+        run: |
+          for attempt in $(seq 1 20); do
+            test "$(npm view @vibe-monitor/setup dist-tags.latest --prefer-online)" = "$VERSION" && exit 0
+            sleep 30
+          done
+          exit 1
       - name: Create public GitHub Release from the same commit and npm package
         env:
           GH_TOKEN: ${{ github.token }}

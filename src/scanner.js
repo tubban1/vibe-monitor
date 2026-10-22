@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-  EVIDENCE_VERSION, SOURCE_EXTENSIONS, IGNORED_DIRS, RESPONSIBILITY_PATTERNS,
+  EVIDENCE_VERSION, SOURCE_EXTENSIONS, SOURCE_LANGUAGE_BY_EXTENSION, IGNORED_DIRS, RESPONSIBILITY_PATTERNS,
   PLATFORM_PATTERNS, CREDENTIAL_PATTERNS, PUBLIC_ENDPOINT_PATTERNS, TEST_SCOPE_PATTERN
 } from "./constants.js";
 import { countMatches, normalizeRel, sha256 } from "./utils.js";
@@ -517,6 +517,18 @@ function applyStructuralEvidence(root, files, {
   };
 }
 
+// Non-test source files per language, including languages without
+// structural parsing. Counts only; telemetry reduces them to buckets.
+function sourceLanguageCounts(files) {
+  const counts = {};
+  for (const file of files) {
+    if (file.isTestFile) continue;
+    const language = SOURCE_LANGUAGE_BY_EXTENSION[path.extname(file.path).toLowerCase()];
+    if (language) counts[language] = (counts[language] || 0) + 1;
+  }
+  return counts;
+}
+
 export function scanProject(root, { limits = {} } = {}) {
   const startedAt = Date.now();
   const selectedLimits = { ...DEFAULT_SCAN_LIMITS };
@@ -562,6 +574,7 @@ export function scanProject(root, { limits = {} } = {}) {
     },
     summary: {
       sourceFiles: files.length,
+      sourceLanguages: sourceLanguageCounts(files),
       totalLoc: files.reduce((n, file) => n + file.loc, 0),
       totalFunctions: files.reduce((n, file) => n + file.functionCount, 0),
       totalImports: files.reduce((n, file) => n + file.importCount, 0),

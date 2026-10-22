@@ -167,8 +167,8 @@ test("unified open client performs offline scan, install and uninstall with no u
  assert.equal(run("cloud","register","--json").status,2,"Beta Cloud registration must be blocked");
  const qaPairing=spawnSync(process.execPath,["--import",blockUrl,cli,"account","link","--qa"],
   {cwd:temp,env:{...env,VIBE_PORTAL_PAIRING_QA:"1"},encoding:"utf8",timeout:30000,maxBuffer:3e6});
- assert.equal(qaPairing.status,1,"Public account linking needs interactive local proof, and never exposes Beta pairing");
- assert.match(qaPairing.stderr,/interactive_terminal_required/);
+ assert.equal(qaPairing.status,1,"Public account linking without a stdin code fails locally and never exposes Beta pairing");
+ assert.match(qaPairing.stderr,/invalid_pairing_code/);
  assert.doesNotMatch(qaPairing.stderr,/cloud-installation-token|vmb_/);
  assert.equal(fs.existsSync(path.join(app,"cloud","client.json")),false);
  // The pinned OTA key does not authorize updates without a valid signed release manifest.

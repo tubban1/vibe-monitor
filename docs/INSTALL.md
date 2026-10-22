@@ -23,3 +23,25 @@ Verify the actual installed version, supported Agent MCP integration, `vibe-moni
 For historical version-specific migration, rollback and incident information, consult [release audit records](RELEASE_AUDIT_1.0.2.md); they are not current fresh-install instructions.
 
 [Code project suitability assessment](AGENT_EVALUATION.md) · [Telemetry controls and field list](governance/TELEMETRY_PRIVACY_V1.md).
+
+## Supported coding Agents
+
+The installer detects these Agents and adds a user-level `vibe-monitor` MCP entry (plus a user-level instructions file where the Agent has one). Pass `--<name>` to configure one explicitly, for example `--opencode`.
+
+| Agent | `--name` | Where |
+|---|---|---|
+| Codex | `codex` | `~/.codex/config.toml`, `~/.codex/AGENTS.md` |
+| Claude Code | `claude` | `~/.claude.json`, `~/.claude/CLAUDE.md` |
+| Cursor | `cursor` | `~/.cursor/mcp.json`, `~/.cursor/rules/vibe-monitor.mdc` |
+| Antigravity | `antigravity` | `~/.gemini/config/mcp_config.json`, `~/.gemini/GEMINI.md` |
+| Trae | `trae` | Trae user `mcp.json` |
+| OpenCode | `opencode` | `~/.config/opencode/opencode.json` (`mcp`), `~/.config/opencode/AGENTS.md` |
+| Gemini CLI | `gemini-cli` | `~/.gemini/settings.json`, `~/.gemini/GEMINI.md` |
+| Cline | `cline` | Cline CLI `~/.cline/data/settings/`, and the Cline extension in each VS Code-family editor |
+| Roo Code | `roo-code` | Roo Code extension settings in each VS Code-family editor |
+| GitHub Copilot | `copilot` | Copilot CLI `~/.copilot/mcp-config.json`; VS Code user `mcp.json` (`servers`) |
+| Kiro | `kiro` | `~/.kiro/settings/mcp.json`, `~/.kiro/steering/vibe-monitor.md` |
+| Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json`, global rules |
+| WorkBuddy (experimental) | `workbuddy` | `~/.workbuddy/.mcp.json` |
+
+An existing config that is not plain JSON (for example with comments) is left unchanged and the installer asks you to add the entry manually. Uninstall removes only entries Vibe Monitor wrote.

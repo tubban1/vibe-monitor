@@ -1,6 +1,16 @@
 export const EVIDENCE_VERSION = 7;
-export const CLIENT_VERSION = "1.0.5";
+export const CLIENT_VERSION = "1.0.11";
 export const DEFAULT_CLOUD_URL = "https://vibe-api.fde.fan";
+
+// Language of each scanned extension, for the per-language demand signal.
+// Must stay within the Cloud enum (free-telemetry SOURCE_LANGUAGES).
+export const SOURCE_LANGUAGE_BY_EXTENSION = Object.freeze({
+  ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+  ".ts": "typescript", ".tsx": "typescript", ".py": "python", ".go": "go", ".rs": "rust",
+  ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".swift": "swift",
+  ".c": "c", ".h": "c", ".cc": "cpp", ".cpp": "cpp", ".hpp": "cpp",
+  ".cs": "csharp", ".rb": "ruby", ".php": "php", ".vue": "vue", ".svelte": "svelte"
+});
 
 export const SOURCE_EXTENSIONS = new Set([
   ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
