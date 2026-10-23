@@ -272,18 +272,32 @@ export function buildSkippedSessionPayload(reason = "user_skipped", callId = nul
   };
 }
 
+export function isFilesystemRoot(candidate) {
+  if (typeof candidate !== "string" || !candidate.trim()) return false;
+  const normalized = candidate.split(String.fromCharCode(92)).join("/").replace(/\/+/g, "/");
+  if (normalized === "/" || /^[a-zA-Z]:\/?$/.test(normalized)) return true;
+  try {
+    const resolved = nodePath.resolve(candidate);
+    return resolved === nodePath.parse(resolved).root;
+  } catch {
+    return false;
+  }
+}
+
 // IDE launchers often start MCP with their *application installation* as
 // cwd, not the editor's open workspace. Scanning such directories can appear
 // healthy while failing to inspect any user code. Require an explicit project
 // selection unless cwd can genuinely be identified as a project.
 export function isSafeImplicitProjectCwd(candidate) {
   if (typeof candidate !== "string" || !candidate.trim()) return false;
+  if (isFilesystemRoot(candidate)) return false;
   const normalized = candidate.split(String.fromCharCode(92)).join("/").replace(/\/+/g, "/").toLowerCase();
   if (normalized.includes("/appdata/local/programs/") ||
       normalized.includes("/program files/") ||
       normalized.includes("/program files (x86)/")) return false;
   try {
     const root = findProjectRoot(candidate);
+    if (isFilesystemRoot(root)) return false;
     return fs.existsSync(nodePath.join(root, ".git")) ||
       ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"].some(
         filename => fs.existsSync(nodePath.join(root, filename))
@@ -400,7 +414,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   ) {
     if (signal?.aborted) throw new ScanControlError("scan_cancelled");
     const selection = projectContext.resolve(inputPath);
-    if (selection.fallbackToHostCwd && !isSafeImplicitProjectCwd(selection.path)) {
+    if (isFilesystemRoot(selection.path) || (selection.fallbackToHostCwd && !isSafeImplicitProjectCwd(selection.path))) {
       return { result: null, remotePolicy: null, disabled: true, callId,
         disabledPayload: projectPathRequiredPayload() };
     }
