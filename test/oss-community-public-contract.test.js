@@ -7,7 +7,7 @@ import {DISTRIBUTION_MODE} from "../src/distribution.js";
 import {COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM,COMMUNITY_POLICY_TRUSTED_NEXT_PUBLIC_KEY_PEM,createCommunityPolicyClient} from "../src/community-cloud-policy.js";
 import {fetchVerifiedNode,nodeDownloadSources,stableReleaseUsesManagedRuntime} from "../src/install.js";
 import {readBoundedUpdateArtifact} from "../src/update.js";
-import {buildAgentResult,applyMonitoringPolicy,initializeMcpTelemetry,createMcpProjectContext,isSafeImplicitProjectCwd,projectPathRequiredPayload} from "../src/mcp.js";
+import {buildAgentResult,applyMonitoringPolicy,initializeMcpTelemetry,createMcpProjectContext,isSafeImplicitProjectCwd,isFilesystemRoot,projectPathRequiredPayload} from "../src/mcp.js";
 import {detectorRuleId,monitorFamilyForDetector} from "../src/rule-identity.js";
 import {POLICY_V2_FAMILIES} from "../src/decision-policy.js";
 import {updateStatus,compareVersions,shouldAutoStageUpdate,scheduleAutomaticUpdate,AUTO_UPDATE_RECHECK_MS,FREE_UPDATE_TRUSTED_PUBLIC_KEY_PEM} from "../src/update.js";
@@ -442,10 +442,17 @@ test("MCP concurrent explicit project selection ignores late older results",()=>
  assert.equal(context.resolve().path,"/qa/newer");
 });
 
-test("Implicit MCP workspace rejects IDE install directory and unknown cwd",()=>{
+test("Implicit MCP workspace rejects IDE install directory, filesystem root and unknown cwd",()=>{
+ assert.equal(isFilesystemRoot("/"),true);
+ assert.equal(isSafeImplicitProjectCwd("/"),false);
+ assert.equal(isSafeImplicitProjectCwd("C:\\\\"),false);
  assert.equal(isSafeImplicitProjectCwd("C:\\\\Users\\\\i95i\\\\AppData\\\\Local\\\\Programs\\\\antigravity"),false);
  assert.equal(isSafeImplicitProjectCwd("C:\\\\Program Files\\\\Antigravity"),false);
  assert.equal(isSafeImplicitProjectCwd("/a/nonexistent/project"),false);
+ const rootCtx=createMcpProjectContext(()=>"/");
+ const rootSel=rootCtx.resolve();
+ assert.equal(isFilesystemRoot(rootSel.path),true);
+ assert.equal(isSafeImplicitProjectCwd(rootSel.path),false);
  const repo=fs.mkdtempSync(path.join(os.tmpdir(),"vibe-implicit-git-"));
  try {
   fs.mkdirSync(path.join(repo,".git"));
