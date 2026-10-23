@@ -1,5 +1,7 @@
 # Vibe Monitor
 
+[![AllMCPs listing](https://allmcps.com/api/badge/vibe-monitor)](https://allmcps.com/mcp/vibe-monitor?verify=28ea83f4-389c-4670-a934-3f0202997d1a)
+
 **A local architecture advisor for AI coding workflows.** AI agents ship features fast; Vibe Monitor helps you see when architectural complexity is accumulating and what actually needs attention.
 
 ## Get started — official stable release
