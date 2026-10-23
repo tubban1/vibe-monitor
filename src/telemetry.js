@@ -9,6 +9,7 @@ import { ALL_AGENT_NAMES } from "./agent-integrations.js";
 import { isOpenClientDistribution } from "./distribution.js";
 import { buildArchitectureProfile } from "./data-intelligence.js";
 import { getOrCreateSecret, readSecret, writeSecret } from "./secure-store.js";
+import { resolveDemotionMargin } from "./decision-policy.js";
 
 const TELEMETRY_SCHEMA_VERSION = 4;
 // Segments cap per-file work, not total undelivered data. Never silently trim
@@ -730,6 +731,7 @@ export function enqueueActivityTelemetry(activityItem, transitions = [], result 
     observed.save();
   }
 
+  const demotionMargin = result?.demotionMargin ?? activityItem?.demotionMargin ?? resolveDemotionMargin(result?.scoringPolicy);
   for (const transition of transitions || []) {
     // The current Cloud schema only accepts observed stage changes. A missing
     // Finding is not evidence of a repair; keep it local until Outcome v1.
@@ -737,6 +739,13 @@ export function enqueueActivityTelemetry(activityItem, transitions = [], result 
     const transitionBase = baseEvent("finding." + transition.type, activityItem.projectId, transition.id, context, telemetryConfig);
     if (!transitionBase) continue;
     const currentFinding = (result?.findings || []).find(finding => finding.id === transition.id);
+    const transitionPayload = {
+      transitionType: safeEnum(transition.type, 32),
+      currentActionMode: classifyActionMode(currentFinding)
+    };
+    if (typeof demotionMargin === "number") {
+      transitionPayload.demotionMargin = demotionMargin;
+    }
     queued.push({
       ...transitionBase,
       agent: activityItem.agent || "unknown",
@@ -744,10 +753,7 @@ export function enqueueActivityTelemetry(activityItem, transitions = [], result 
       fromStage: transition.fromStage || null,
       toStage: transition.toStage || null,
       actionMode: classifyActionMode(currentFinding),
-      payload: {
-        transitionType: safeEnum(transition.type, 32),
-        currentActionMode: classifyActionMode(currentFinding)
-      }
+      payload: transitionPayload
     });
   }
 
@@ -991,7 +997,7 @@ export function freeTelemetryWireBatch(events = readTelemetryBatch({limit:12})) 
    const v=enumValue(e.payload?.[k]);if(v!==null)payload[k]=v;
   }
   for(const k of ["durationMs","wallTimeMs","fullScanCount","cachedCheckCount",
-   "deferredCheckCount","score","suppressedCount","maxNotices"]){
+   "deferredCheckCount","score","suppressedCount","maxNotices","demotionMargin"]){
    const v=e.payload?.[k];
    if(typeof v==="number"&&Number.isFinite(v)&&v>=0&&v<=3_600_000)
      payload[k]=Math.round(v);
