@@ -36,6 +36,7 @@ import { enqueueCallCompletedTelemetry, enqueueNoticeTelemetry, enqueueOutcomeTe
 import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
+import { auditLegacyCode } from "./legacy-audit.js";
 import { detectorRuleId, monitorFamilyForDetector } from "./rule-identity.js";
 import { recommendationGroups } from "./diagnostic-quality.js";
 import { highSeverityReviewQueue } from "./finding-intelligence.js";
@@ -67,7 +68,13 @@ function compactAttentionFinding(finding) {
     userFacing: finding.userFacing,
     agentAction: finding.agentAction || null,
     semanticReview: finding.semanticReview || null,
-    signals: (finding.signals || []).map(s => ({ name: s.name, bucket: s.bucket || null })),
+    // Preserve measured values and provenance in alerts, not just stage labels.
+    evidenceQuality: finding.evidenceQuality || "unknown",
+    boundaryAssessment: finding.boundaryAssessment || null,
+    signals: (finding.signals || []).map(s => ({
+      name: s.name, value: s.value ?? null, evidence: s.evidence || null,
+      bucket: s.bucket || null, independenceGroup: s.independenceGroup || s.name
+    })),
     intelligence: finding.intelligence ? {
       trend: finding.intelligence.trend,
       observedScans: finding.intelligence.observedScans,
@@ -123,7 +130,35 @@ export function buildAgentResult(result, { sessionStart = false, attentionFilter
   const eligibleAttention = attentionFilter
     ? baseEligibleAttention.filter(attentionFilter)
     : baseEligibleAttention;
-  const attentionFindings = selectNoticeFindings(eligibleAttention, Math.max(0, maxNotices));
+  // Read source only for selected notices; telemetry exports a separate,
+  // aggregate allowlist and never receives excerpts or file paths.
+  const attentionFindings = selectNoticeFindings(eligibleAttention, Math.max(0, maxNotices))
+    .map(notice => {
+      const original = result.findings.find(f => f.id === notice.id);
+      let sourceEvidence = [];
+      try {
+        sourceEvidence = findingDetail(result.project?.root, original, result.summary)
+          ?.explanation?.sourceEvidence?.slice(0, 5) || [];
+      } catch { /* unavailable files must never be interpreted as clean */ }
+      const coverage = result.summary?.structuralScan || null;
+      const semanticStatus = original?.boundaryAssessment?.status || null;
+      return {
+        ...notice,
+        evidenceSummary: {
+          capturedAt: result.capturedAt || null,
+          quality: original?.evidenceQuality || "unknown",
+          assessment: semanticStatus || (sourceEvidence.length ? "source-indicators-only" : "aggregate-signals-only"),
+          verificationRequired: !original?.structuralEvidence?.boundaryCandidateCount,
+          sourceEvidence,
+          structuralCoverage: coverage ? {
+            candidateFiles: coverage.candidateFiles ?? 0,
+            analyzedFiles: coverage.analyzedFiles ?? 0,
+            skippedByBudget: coverage.skippedByBudget ?? 0
+          } : null,
+          limitation: "Signals and source indicators do not prove a refactor is needed. Verify responsibilities and actual consumers first."
+        }
+      };
+    });
   const improvements = (result?.monitoring?.assessmentAvailable === false ? [] : result.transitions || [])
     .filter(change => change.type === "improved" && ["S3", "S4", "S5"].includes(change.fromStage))
     .slice(0, 1)
@@ -739,6 +774,20 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       highSeverityReviewQueue: highSeverityReviewQueue(result.findings, {limit: 10}),
       monitoring: { ...result.monitoring }
     });
+  });
+
+  // Explicit, read-only retirement inventory; never deletes user code or data.
+  server.registerTool("vibe_legacy_audit", {
+    description: "Find local legacy compatibility, retired feature markers, disabled branches and possibly unreferenced private functions. Each candidate requires consumer verification; nothing is auto-deleted.",
+    inputSchema: { path: pathSchema }
+  }, async ({ path }) => {
+    const { result, disabled, disabledPayload } = await analyzeWithPolicy(path, {
+      persist: false, kind: "legacy_audit"
+    });
+    if (disabled) return textResult(disabledPayload);
+    const inventory = auditLegacyCode(result.project.root, {productIntent: result.productIntent});
+    return textResult({project: result.project, capturedAt: new Date().toISOString(),
+      ...inventory, telemetry: "local evidence only; no source excerpts sent to Cloud"});
   });
 
   server.registerTool("vibe_finding_intelligence", {

@@ -1107,6 +1107,20 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
     score: cloudScore,
     target: "project",
     title: "API contract pressure is rising",
+    // Project-level findings need specific source contributors, not only a
+    // total count. These are pointers to inspect, not evidence of consumers.
+    sourceEvidence: files.filter(f => f.compatibilitySignals > 0 ||
+      f.apiVersionSignals > 0 || f.publicEndpoints > 0)
+      .sort((a, b) =>
+        ((b.compatibilitySignals || 0) + (b.apiVersionSignals || 0) + (b.publicEndpoints || 0)) -
+        ((a.compatibilitySignals || 0) + (a.apiVersionSignals || 0) + (a.publicEndpoints || 0)))
+      .slice(0, 6).map(f => ({
+        kind: "api-contract-source-contributor",
+        path: f.path,
+        counts: {compatibility: f.compatibilitySignals || 0,
+          versions: f.apiVersionSignals || 0, endpoints: f.publicEndpoints || 0},
+        supports: "Source pattern count only; no verified external consumer or required compatibility."
+      })),
     evidenceQuality: previous ? "direct+derived+intent+heuristic" : "direct+intent+heuristic",
     signals: s.filter(x => x.active),
     decisionAssessment: externalIntentKnown
