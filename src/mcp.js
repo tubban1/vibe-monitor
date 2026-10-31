@@ -37,6 +37,9 @@ import { CLIENT_VERSION } from "./constants.js";
 import { isOpenClientDistribution, resolveDistributionPolicy, freeAnalysisContractStatus } from "./distribution.js";
 import { findingDetail } from "./finding-detail.js";
 import { auditLegacyCode } from "./legacy-audit.js";
+import { analyzeImplementationOverlap, summarizeEvolution } from "./evolution-audit.js";
+import { scanProject } from "./scanner.js";
+import { listRecentSnapshots } from "./history.js";
 import { detectorRuleId, monitorFamilyForDetector } from "./rule-identity.js";
 import { recommendationGroups } from "./diagnostic-quality.js";
 import { highSeverityReviewQueue } from "./finding-intelligence.js";
@@ -788,6 +791,29 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     const inventory = auditLegacyCode(result.project.root, {productIntent: result.productIntent});
     return textResult({project: result.project, capturedAt: new Date().toISOString(),
       ...inventory, telemetry: "local evidence only; no source excerpts sent to Cloud"});
+  });
+
+  // Explicit opt-in deep audit; no score changes and no cloud uploads.
+  server.registerTool("vibe_evolution_audit", {
+    description: "Read-only source-based structural duplicate candidates, legacy consumer-reference review, and multi-snapshot code evolution with Git churn; no automatic deletion or causal claims.",
+    inputSchema: { path: pathSchema }
+  }, async ({ path }) => {
+    const { result, disabled, disabledPayload } = await analyzeWithPolicy(path, {
+      persist: false, kind: "evolution_audit"
+    });
+    if (disabled) return textResult(disabledPayload);
+    const root = result.project.root;
+    const snapshot = scanProject(root);
+    const files = snapshot.files.map(f => f.path).filter(f => !/test|spec/i.test(f));
+    const versions = listRecentSnapshots(result.project.id, 12)
+      .filter(s => s.evidenceVersion === result.evidenceVersion);
+    return textResult({
+      project: result.project, sourceEvidenceOnly: true,
+      duplicateImplementations: analyzeImplementationOverlap(root, {files}),
+      retiredCode: auditLegacyCode(root, {productIntent: result.productIntent}),
+      evolution: summarizeEvolution(root, snapshot.summary, versions),
+      note: "Heuristic candidates require review, never authorizing a deletion or attributing changes to an agent."
+    });
   });
 
   server.registerTool("vibe_finding_intelligence", {

@@ -79,8 +79,17 @@ export function auditLegacyCode(root, {productIntent=null,maxCandidates=80}={}) 
     for (let i=0;i<lines.length && candidates.length<limit && perFile<8;i++) {
       const hit=signalAt(lines[i],lines[i-1]||"");
       if (!hit) continue;
+      const declaration = lines[i].match(/\b(?:function|class|const|let|var|def)\s+([A-Za-z_$][\w$]*)\b/);
+      const symbol = declaration?.[1] || null;
+      const callers = symbol ? allText.flatMap(other=>{
+        const refs=tokenOccurrences(other.text,symbol)-(other.path===file.path?1:0);
+        return refs>0?[{path:other.path,mentions:refs,test:other.isTest}]:[];
+      }).slice(0,8) : [];
       candidates.push(candidate(file.path,i+1,hit.kind,hit.basis,
-        {excerpt:lines[i].trim().slice(0,160)}));
+        {excerpt:lines[i].trim().slice(0,160),
+          ...(symbol?{symbol,observedReferences:callers,
+            referenceAssessment:callers.length?"references-observed":"no-static-references-observed"}:
+            {referenceAssessment:"unresolved-no-declaration"})}));
       perFile++;
     }
     if (candidates.length>=limit) break;
