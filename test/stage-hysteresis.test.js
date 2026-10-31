@@ -247,4 +247,3 @@ test("integration: analyzeProject end-to-end stage hysteresis and transitions", 
     fs.rmSync(tempHome, { recursive: true, force: true });
   }
 });
-

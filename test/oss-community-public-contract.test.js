@@ -595,3 +595,17 @@ test("Production OTA trust root is pinned independently of Cloud architecture po
   "955e683e0326b93df68a0356d8e8bbace67eb588251f81af63c28b1d9f0ab5a2");
  assert.notEqual(pem,COMMUNITY_POLICY_TRUSTED_PUBLIC_KEY_PEM);
 });
+
+test("MCP Registry source metadata remains synchronized with the current version", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "server.json"), "utf8"));
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"));
+  assert.equal(pkg.mcpName, "io.github.tubban1/vibe-monitor");
+  assert.equal(manifest.name, pkg.mcpName);
+  assert.equal(manifest.version, pkg.version);
+  assert.equal(manifest.packages[0].version, pkg.version);
+  assert.equal(manifest.packages[0].identifier, pkg.name);
+  assert.equal(manifest.packages[0].transport.type, "stdio");
+  assert.equal(manifest.packages[0].packageArguments[0].value, "mcp");
+  assert.equal(lock.version, pkg.version);
+});
