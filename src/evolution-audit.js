@@ -1,6 +1,7 @@
 // Evidence-only structural evolution audit. Not a semantic equivalence proof.
 import fs from "node:fs";
 import path from "node:path";
+import {createHash} from "node:crypto";
 import {execFileSync} from "node:child_process";
 import Parser from "tree-sitter";
 import {resolveLanguage} from "./languages.js";
@@ -10,6 +11,22 @@ const SOURCE=/\.(?:[cm]?[jt]sx?|py)$/i;
 const TEST=/(?:^|\/)(?:test|tests|__tests__|fixtures)(?:\/|$)|(?:\.|-)(?:test|spec)\.[cm]?[jt]sx?$/i;
 const STOP=new Set(["identifier","property_identifier","type_identifier","number","string","string_fragment","integer","float","true","false","null","comment"]);
 const MAX_FUNCTIONS=600;
+// Semantic guard uses transient in-memory hashes; no literal values are returned.
+const OPERATOR_TOKENS=new Set(["+","-","*","/","%","**","==","===","!=","!==","<",">","<=",">=","&&","||","??","!","~","&","|","^","<<",">>",">>>","+=","-=","*=","/=","%=","++","--"]);
+const VALUE_TYPES=new Set(["number","integer","float","string","true","false","null","regex","template_string"]);
+function semanticDigest(node,source){
+  const pieces=[],todo=[node];
+  while(todo.length){
+    const curr=todo.pop();
+    if(VALUE_TYPES.has(curr.type)){
+      pieces.push(curr.type+":"+source.slice(curr.startIndex,curr.endIndex));
+      continue;
+    }
+    if(OPERATOR_TOKENS.has(curr.type)){pieces.push("op:"+curr.type);continue;}
+    for(let i=curr.childCount-1;i>=0;i--)todo.push(curr.child(i));
+  }
+  return createHash("sha256").update(JSON.stringify(pieces)).digest("hex");
+}
 function functionsOf(root,relative) {
   const full=path.resolve(root,relative);
   if(!full.startsWith(root+path.sep))return [];
@@ -23,6 +40,15 @@ function functionsOf(root,relative) {
   while(stack.length&&out.length<120){
     const n=stack.pop();
     if(r.adapter.functionTypes.has(n.type)){
+      let ancestor=n.parent,insideFunction=false;
+      while(ancestor){
+        if(r.adapter.functionTypes.has(ancestor.type)){insideFunction=true;break;}
+        ancestor=ancestor.parent;
+      }
+      if(insideFunction){
+        for(let i=n.namedChildCount-1;i>=0;i--)stack.push(n.namedChild(i));
+        continue;
+      }
       const typed=[];
       const pending=[n];
       while(pending.length&&typed.length<420){
@@ -34,7 +60,7 @@ function functionsOf(root,relative) {
         const nameNode=n.childForFieldName?.("name")||n.parent?.childForFieldName?.("name");
         const name=nameNode?r.source.slice(nameNode.startIndex,nameNode.endIndex):null;
         out.push({path:relative,line:n.startPosition.row+1,name,
-          tokens:typed, nodeCount:typed.length});
+          tokens:typed, nodeCount:typed.length, semanticDigest:semanticDigest(n,r.source)});
       }
     }
     for(let i=n.namedChildCount-1;i>=0;i--)stack.push(n.namedChild(i));
@@ -65,6 +91,7 @@ export function analyzeImplementationOverlap(root,{files,maxFiles=70,maxPairs=25
   }
   const prepared=functions.map(f=>({...f,shape:shingles(f.tokens)}));
   const pairs=[];
+  let excludedSemanticMismatches=0;
   for(let i=0;i<prepared.length;i++){
     const a=prepared[i];
     for(let j=i+1;j<prepared.length;j++){
@@ -74,6 +101,7 @@ export function analyzeImplementationOverlap(root,{files,maxFiles=70,maxPairs=25
       if(ratio<0.75)continue;
       const similarity=jaccard(a.shape,b.shape);
       if(similarity<0.84)continue;
+      if(a.semanticDigest!==b.semanticDigest){excludedSemanticMismatches++;continue;}
       pairs.push({left:{path:a.path,line:a.line,symbol:a.name},
         right:{path:b.path,line:b.line,symbol:b.name},
         kind:"structural-implementation-similarity",
@@ -83,10 +111,10 @@ export function analyzeImplementationOverlap(root,{files,maxFiles=70,maxPairs=25
     }
   }
   pairs.sort((a,b)=>b.similarity-a.similarity);
-  return {method:"tree-sitter-function-structural-shingle-v1",
+  return {method:"tree-sitter-function-structural-shingle+semantic-guard-v2",
     assessmentAvailable:paths.length>0&&skippedFiles===0,
     selectedFiles:paths.length,skippedFiles,functionsInspected:functions.length,
-    pairs:pairs.slice(0,maxPairs),truncated:pairs.length>maxPairs||functions.length>=MAX_FUNCTIONS,
+    pairs:pairs.slice(0,maxPairs),excludedSemanticMismatches,truncated:pairs.length>maxPairs||functions.length>=MAX_FUNCTIONS,
     caution:"Source-limited, name-independent structural similarity. Not full semantic equivalence."};
 }
 export function summarizeEvolution(root,summary={},snapshots=[]){
