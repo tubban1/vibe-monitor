@@ -51,6 +51,33 @@ test("manual changes to managed registrations are not removed",t=>{
   fs.writeFileSync(file,JSON.stringify(data));remove(["antigravity"]);
   assert.equal(JSON.parse(fs.readFileSync(file,"utf8")).mcpServers["vibe-monitor"].command,"user-edited");
 });
+test("empty 0-byte config file is backed up and safely populated; removal cleans up",t=>{
+  const home=sandbox(t);
+  const file=path.join(home,".gemini","config","mcp_config.json");
+  fs.mkdirSync(path.dirname(file),{recursive:true});
+  fs.writeFileSync(file,"");
+  assert.equal(fs.statSync(file).size,0);
+  const res=install(["antigravity"]);
+  assert.ok(res.changes.some(c=>c.kind==="mcp"&&c.changed));
+  const bak=file+".vibe-monitor.bak";
+  assert.ok(fs.existsSync(bak));
+  assert.equal(fs.statSync(bak).size,0);
+  const data=JSON.parse(fs.readFileSync(file,"utf8"));
+  assert.ok(data.mcpServers["vibe-monitor"]);
+  assert.ok(remove(["antigravity"]).changes.some(c=>c.kind==="mcp"&&c.changed));
+  const cleaned=JSON.parse(fs.readFileSync(file,"utf8"));
+  assert.equal(cleaned.mcpServers["vibe-monitor"],undefined);
+});
+test("unparseable non-empty config file is strictly preserved without overwrite",t=>{
+  const home=sandbox(t);
+  const file=path.join(home,".gemini","config","mcp_config.json");
+  fs.mkdirSync(path.dirname(file),{recursive:true});
+  const broken='{\n  "mcpServers": { broken json syntax\n';
+  fs.writeFileSync(file,broken);
+  const res=install(["antigravity"]);
+  assert.ok(res.changes.some(c=>c.kind==="mcp"&&c.manualRequired&&c.error==="existing_config_not_strict_json_preserved"));
+  assert.equal(fs.readFileSync(file,"utf8"),broken);
+});
 test("Codex TOML conflicting stanza is preserved, fresh owned stanza removable",t=>{
   const home=sandbox(t), file=path.join(home,".codex","config.toml");
   fs.mkdirSync(path.dirname(file),{recursive:true});

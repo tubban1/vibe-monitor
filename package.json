@@ -1,7 +1,6 @@
 {
   "name": "@vibe-monitor/setup",
-  "mcpName": "io.github.tubban1/vibe-monitor",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "private": false,
   "description": "Vibe Monitor open-source architecture intelligence client",
   "type": "module",
@@ -24,7 +23,7 @@
   ],
   "scripts": {
     "build": "esbuild src/cli.js --bundle --packages=external --platform=node --format=esm --target=node20 --minify --legal-comments=none --outfile=dist/vibe-monitor.mjs && esbuild src/scan-worker.js --bundle --packages=external --platform=node --format=esm --target=node20 --minify --legal-comments=none --outfile=dist/vibe-monitor-scan-worker.mjs",
-    "test": "node --test test/oss-community-public-contract.test.js test/oss-community-public-smoke.test.js test/oss-source-history-audit.test.js test/oss-agent-ownership.test.js test/cloud-owned-rulepack.test.js test/oss-budget-cooldown-regression.test.js test/oss-upgrade-bridge.test.js test/oss-offline-release-signing.test.js test/oss-beta-stable-active-handoff.test.js test/free-telemetry-auto-drain.test.js test/free-telemetry-quality-parity.test.js test/oss-lifecycle-telemetry.test.js test/oss-device-link.test.js test/oss-language-adapters.test.js test/oss-agent-integrations.test.js test/oss-telemetry-signal-quality.test.js test/oss-targeted-update.test.js",
+    "test": "node --test test/evolution-audit.test.js test/legacy-evidence-audit.test.js test/oss-community-public-contract.test.js test/oss-community-public-smoke.test.js test/oss-source-history-audit.test.js test/oss-agent-ownership.test.js test/cloud-owned-rulepack.test.js test/oss-budget-cooldown-regression.test.js test/oss-upgrade-bridge.test.js test/oss-offline-release-signing.test.js test/oss-beta-stable-active-handoff.test.js test/free-telemetry-auto-drain.test.js test/free-telemetry-quality-parity.test.js test/oss-lifecycle-telemetry.test.js test/oss-device-link.test.js test/oss-language-adapters.test.js test/oss-agent-integrations.test.js test/oss-telemetry-signal-quality.test.js test/oss-targeted-update.test.js test/stage-hysteresis.test.js",
     "prepack": "npm run build",
     "qa:ota-real-package": "node test/oss-real-package-ota-uat.mjs",
     "qa:beta41-real-package": "node test/oss-real-beta41-migration-uat.mjs"
@@ -36,9 +35,10 @@
     "tree-sitter-javascript": "^0.21.4",
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.23.2",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
-  }
+  },
+  "mcpName": "io.github.tubban1/vibe-monitor"
 }

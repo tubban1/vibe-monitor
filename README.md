@@ -1,10 +1,12 @@
 # Vibe Monitor
 
+[![AllMCPs listing](https://allmcps.com/api/badge/vibe-monitor)](https://allmcps.com/mcp/vibe-monitor?verify=28ea83f4-389c-4670-a934-3f0202997d1a)
+
 **A local architecture advisor for AI coding workflows.** AI agents ship features fast; Vibe Monitor helps you see when architectural complexity is accumulating and what actually needs attention.
 
 ## Get started — official stable release
 
-The open-source client is published on npm as **`@vibe-monitor/setup@latest`** (current stable release: **`@vibe-monitor/setup@1.0.11`**). One client is used for Free/Pro/Team; future paid features are not separate installers.
+The open-source client is published on npm as **`@vibe-monitor/setup@latest`** (current stable release: **`@vibe-monitor/setup@1.0.12`**). One client is used for Free/Pro/Team; future paid features are not separate installers.
 
 ```bash
 npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install

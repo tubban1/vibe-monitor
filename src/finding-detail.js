@@ -105,7 +105,7 @@ export function findingDetail(root, finding, summary = {}) {
       }
       if (hits.length >= INDICATORS.length) break;
     }
-    result.explanation.sourceEvidence = hits.slice(0, 8);
+    result.explanation.sourceEvidence = [...result.explanation.sourceEvidence, ...hits].slice(0, 8);
   } catch { /* source may have disappeared since scan */ }
   return result;
 }

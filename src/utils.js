@@ -45,8 +45,8 @@ export function atomicJsonWrite(file, value) {
   try { fs.chmodSync(file, 0o600); } catch {}
 }
 
-export function stageFromScore(score, supportingSignals, decisionPolicy = null, family = null) {
-  return evaluateScoringStage(score, supportingSignals, decisionPolicy, family);
+export function stageFromScore(score, supportingSignals, decisionPolicy = null, family = null, previousStage = null) {
+  return evaluateScoringStage(score, supportingSignals, decisionPolicy, family, previousStage);
 }
 
 export function countMatches(text, regex) {
