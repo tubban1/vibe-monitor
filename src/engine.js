@@ -9,7 +9,7 @@ import { findingDetail } from "./finding-detail.js";
 import { enrichFindingIntelligence } from "./finding-intelligence.js";
 import { observeOutcomeCheckpoint } from "./outcomes.js";
 import { detectEncodedIdContract } from "./contract-evidence.js";
-import { scoringPolicyIdentity,monitorPolicyFingerprint,scoreFromSignedSignals,signedAdviceForFamily } from "./decision-policy.js";
+import { scoringPolicyIdentity,monitorPolicyFingerprint,scoreFromSignedSignals,signedAdviceForFamily,resolveDemotionMargin } from "./decision-policy.js";
 import { detectorRuleId } from "./rule-identity.js";
 
 function fileMap(snapshot) {
@@ -468,7 +468,7 @@ function selectTrendReference(current, snapshots, windowSize = 4) {
   return recentDistinct[recentDistinct.length - 1] || null;
 }
 
-function componentFinding(projectId, file, previousFile, gitCommitCount, decisionPolicy = null) {
+function componentFinding(projectId, file, previousFile, gitCommitCount, decisionPolicy = null, previousStage = null) {
   const ratio = growthRatio(file.loc, previousFile?.loc);
   const hotspotRatio = gitCommitCount ? file.gitCommits / gitCommitCount : 0;
   const cochangeCount = file.cochangePartners.filter(x => x.count >= 2).length;
@@ -531,7 +531,7 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
       .map(s => s.independenceGroup)
   ).size;
   const finalScore = scoreFromSignedSignals(signals,decisionPolicy,"code-structure",localFallbackScore(signals.filter(s => !uncalibrated.has(s.name))));
-  let stage = stageFromScore(finalScore, supporting, decisionPolicy, "code-structure");
+  let stage = stageFromScore(finalScore, supporting, decisionPolicy, "code-structure", previousStage);
 
   // Test code has its own verification-architecture concerns. A large test file
   // must not by itself tell the product code to componentize. Keep it as watch-only
@@ -643,7 +643,7 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
   };
 }
 
-function couplingFinding(projectId, current, previous, decisionPolicy = null) {
+function couplingFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const graph = current.graph;
   const prev = previous?.graph;
   const edgeGrowth = prev?.edgeCount ? graph.edgeCount / prev.edgeCount : null;
@@ -655,7 +655,7 @@ function couplingFinding(projectId, current, previous, decisionPolicy = null) {
   ];
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"dependency-coupling",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "dependency-coupling");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "dependency-coupling", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "dependency-coupling", "project"),
@@ -677,7 +677,7 @@ function couplingFinding(projectId, current, previous, decisionPolicy = null) {
   };
 }
 
-function portabilityFinding(projectId, current, previous, decisionPolicy = null) {
+function portabilityFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const count = current.summary.platformAssumptions;
   const previousCount = previous?.summary?.platformAssumptions ?? null;
   const growth = previousCount > 0 ? count / previousCount : null;
@@ -690,7 +690,7 @@ function portabilityFinding(projectId, current, previous, decisionPolicy = null)
   let score = count >= 20 ? 45 : count >= 10 ? 30 : count >= 4 ? 18 : 0;
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"platform-portability",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "platform-portability");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "platform-portability", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "platform-portability", "project"),
@@ -712,7 +712,7 @@ function portabilityFinding(projectId, current, previous, decisionPolicy = null)
   };
 }
 
-function securityFinding(projectId, current, previous, decisionPolicy = null) {
+function securityFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const creds = current.summary.credentialSurface;
   const endpoints = current.summary.publicEndpoints;
   const prevCreds = previous?.summary?.credentialSurface ?? 0;
@@ -726,7 +726,7 @@ function securityFinding(projectId, current, previous, decisionPolicy = null) {
   let score = creds >= 12 ? 35 : creds >= 6 ? 24 : creds >= 3 ? 14 : 0;
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"security-surface",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "security-surface");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "security-surface", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "security-surface", "project"),
@@ -748,7 +748,7 @@ function securityFinding(projectId, current, previous, decisionPolicy = null) {
   };
 }
 
-function stateDataFinding(projectId, current, previous, decisionPolicy = null) {
+function stateDataFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const prevFiles = runtimeFiles(previous);
   const shared = sumField(files, "sharedStateSignals");
@@ -778,7 +778,7 @@ function stateDataFinding(projectId, current, previous, decisionPolicy = null) {
 
   const supporting = s.filter(item => item.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"state-data",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "state-data");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "state-data", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "state-data", "project"),
@@ -800,7 +800,7 @@ function stateDataFinding(projectId, current, previous, decisionPolicy = null) {
   };
 }
 
-function asyncConcurrencyFinding(projectId, current, previous, decisionPolicy = null) {
+function asyncConcurrencyFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const prevFiles = runtimeFiles(previous);
   const asyncCount = sumField(files, "asyncPaths");
@@ -825,7 +825,7 @@ function asyncConcurrencyFinding(projectId, current, previous, decisionPolicy = 
 
   const supporting = s.filter(item => item.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"async-concurrency",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "async-concurrency");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "async-concurrency", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "async-concurrency", "project"),
@@ -847,7 +847,7 @@ function asyncConcurrencyFinding(projectId, current, previous, decisionPolicy = 
   };
 }
 
-function reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy = null) {
+function reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const prevFiles = runtimeFiles(previous);
   const background = sumField(files, "backgroundJobSignals");
@@ -872,7 +872,7 @@ function reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy
 
   const supporting = s.filter(item => item.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"reliability-recovery",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "reliability-recovery");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "reliability-recovery", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "reliability-recovery", "project"),
@@ -894,7 +894,7 @@ function reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy
   };
 }
 
-function testingVerificationFinding(projectId, current, previous, decisionPolicy = null) {
+function testingVerificationFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const summary = current.summary;
   const files = runtimeFiles(current);
   const prevFiles = runtimeFiles(previous);
@@ -922,7 +922,7 @@ function testingVerificationFinding(projectId, current, previous, decisionPolicy
 
   const supporting = s.filter(item => item.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"testing-verification",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "testing-verification");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "testing-verification", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "testing-verification", "project"),
@@ -944,7 +944,7 @@ function testingVerificationFinding(projectId, current, previous, decisionPolicy
   };
 }
 
-function observabilityFinding(projectId, current, previous, decisionPolicy = null) {
+function observabilityFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const prevFiles = runtimeFiles(previous);
   const endpoints = sumField(files, "publicEndpoints");
@@ -971,7 +971,7 @@ function observabilityFinding(projectId, current, previous, decisionPolicy = nul
 
   const supporting = s.filter(item => item.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"observability",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "observability");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "observability", previousStage);
   if (stage === "S1") return null;
   return {
     id: findingId(projectId, "observability", "project"),
@@ -993,7 +993,7 @@ function observabilityFinding(projectId, current, previous, decisionPolicy = nul
   };
 }
 
-function distributionScalingFinding(projectId, current, previous, intent, decisionPolicy = null) {
+function distributionScalingFinding(projectId, current, previous, intent, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const background = sumField(files, "backgroundJobSignals");
   const processes = sumField(files, "processSignals");
@@ -1020,7 +1020,7 @@ function distributionScalingFinding(projectId, current, previous, intent, decisi
 
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"distribution-scaling",localFallbackScore(s));
-  const observedStage = stageFromScore(cloudScore, supporting, decisionPolicy, "distribution-scaling");
+  const observedStage = stageFromScore(cloudScore, supporting, decisionPolicy, "distribution-scaling", previousStage);
   const highImpactContextKnown =
     hosted ||
     multiUser ||
@@ -1064,7 +1064,7 @@ function distributionScalingFinding(projectId, current, previous, intent, decisi
   };
 }
 
-function apiContractFinding(projectId, current, previous, intent, decisionPolicy = null) {
+function apiContractFinding(projectId, current, previous, intent, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const endpoints = sumField(files, "publicEndpoints");
   const endpointFiles = files.filter(f => f.publicEndpoints > 0).length;
@@ -1088,7 +1088,7 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
 
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"api-contract",localFallbackScore(s));
-  const observedStage = stageFromScore(cloudScore, supporting, decisionPolicy, "api-contract");
+  const observedStage = stageFromScore(cloudScore, supporting, decisionPolicy, "api-contract", previousStage);
   const externalIntentKnown =
     intent?.explicit?.audience === "public" ||
     intent?.explicit?.tenancy === "multi" ||
@@ -1107,6 +1107,20 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
     score: cloudScore,
     target: "project",
     title: "API contract pressure is rising",
+    // Project-level findings need specific source contributors, not only a
+    // total count. These are pointers to inspect, not evidence of consumers.
+    sourceEvidence: files.filter(f => f.compatibilitySignals > 0 ||
+      f.apiVersionSignals > 0 || f.publicEndpoints > 0)
+      .sort((a, b) =>
+        ((b.compatibilitySignals || 0) + (b.apiVersionSignals || 0) + (b.publicEndpoints || 0)) -
+        ((a.compatibilitySignals || 0) + (a.apiVersionSignals || 0) + (a.publicEndpoints || 0)))
+      .slice(0, 6).map(f => ({
+        kind: "api-contract-source-contributor",
+        path: f.path,
+        counts: {compatibility: f.compatibilitySignals || 0,
+          versions: f.apiVersionSignals || 0, endpoints: f.publicEndpoints || 0},
+        supports: "Source pattern count only; no verified external consumer or required compatibility."
+      })),
     evidenceQuality: previous ? "direct+derived+intent+heuristic" : "direct+intent+heuristic",
     signals: s.filter(x => x.active),
     decisionAssessment: externalIntentKnown
@@ -1126,7 +1140,7 @@ function apiContractFinding(projectId, current, previous, intent, decisionPolicy
   };
 }
 
-function providerIntegrationFinding(projectId, current, previous, decisionPolicy = null) {
+function providerIntegrationFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const files = runtimeFiles(current);
   const providers = [...new Set(files.flatMap(f => f.providerNames || []))];
   const providerFiles = files.filter(f => (f.providerNames || []).length > 0);
@@ -1148,7 +1162,7 @@ function providerIntegrationFinding(projectId, current, previous, decisionPolicy
 
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"provider-integration",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "provider-integration");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "provider-integration", previousStage);
   if (stage === "S1") return null;
 
   return {
@@ -1171,7 +1185,7 @@ function providerIntegrationFinding(projectId, current, previous, decisionPolicy
   };
 }
 
-function aiDriftFinding(projectId, current, previous, decisionPolicy = null) {
+function aiDriftFinding(projectId, current, previous, decisionPolicy = null, previousStage = null) {
   const groups = current.summary.technologyGroups || {};
   const fragmented = Object.values(groups).filter(values => Array.isArray(values) && values.length >= 2).length;
   const duplicates = current.summary.duplicateBlockGroups || 0;
@@ -1192,7 +1206,7 @@ function aiDriftFinding(projectId, current, previous, decisionPolicy = null) {
 
   const supporting = s.filter(x => x.active).length;
   const cloudScore = scoreFromSignedSignals(s,decisionPolicy,"ai-drift",localFallbackScore(s));
-  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "ai-drift");
+  const stage = stageFromScore(cloudScore, supporting, decisionPolicy, "ai-drift", previousStage);
   if (stage === "S1") return null;
 
   return {
@@ -1215,31 +1229,35 @@ function aiDriftFinding(projectId, current, previous, decisionPolicy = null) {
   };
 }
 
-function buildFindings(projectId, current, previous, intent, root, decisionPolicy = null,enabledMonitors=null) {
+function buildFindings(projectId, current, previous, intent, root, decisionPolicy = null, enabledMonitors = null, previousFindings = {}) {
   const previousFiles = fileMap(previous);
   const findings = [];
 
   const isEnabled=name=>enabledMonitors?.[name]!==false;
   if(isEnabled("code-structure"))for (const file of current.files) {
-    const f = componentFinding(projectId, file, previousFiles.get(file.path), current.git.commitCount, decisionPolicy);
+    const fId = findingId(projectId, "code-structure", file.path);
+    const prevStage = previousFindings?.[fId]?.stage ?? null;
+    const f = componentFinding(projectId, file, previousFiles.get(file.path), current.git.commitCount, decisionPolicy, prevStage);
     if (f) findings.push(f);
   }
   const detectors=[
-    ["dependency-coupling",()=>couplingFinding(projectId, current, previous, decisionPolicy)],
-    ["platform-portability",()=>portabilityFinding(projectId, current, previous, decisionPolicy)],
-    ["security-surface",()=>securityFinding(projectId, current, previous, decisionPolicy)],
-    ["state-data",()=>stateDataFinding(projectId, current, previous, decisionPolicy)],
-    ["async-concurrency",()=>asyncConcurrencyFinding(projectId, current, previous, decisionPolicy)],
-    ["reliability-recovery",()=>reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy)],
-    ["testing-verification",()=>testingVerificationFinding(projectId, current, previous, decisionPolicy)],
-    ["observability",()=>observabilityFinding(projectId, current, previous, decisionPolicy)],
-    ["distribution-scaling",()=>distributionScalingFinding(projectId, current, previous, intent, decisionPolicy)],
-    ["api-contract",()=>apiContractFinding(projectId, current, previous, intent, decisionPolicy)],
-    ["provider-integration",()=>providerIntegrationFinding(projectId, current, previous, decisionPolicy)],
-    ["ai-drift",()=>aiDriftFinding(projectId, current, previous, decisionPolicy)]
+    ["dependency-coupling",(prevStage)=>couplingFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["platform-portability",(prevStage)=>portabilityFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["security-surface",(prevStage)=>securityFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["state-data",(prevStage)=>stateDataFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["async-concurrency",(prevStage)=>asyncConcurrencyFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["reliability-recovery",(prevStage)=>reliabilityRecoveryFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["testing-verification",(prevStage)=>testingVerificationFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["observability",(prevStage)=>observabilityFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["distribution-scaling",(prevStage)=>distributionScalingFinding(projectId, current, previous, intent, decisionPolicy, prevStage)],
+    ["api-contract",(prevStage)=>apiContractFinding(projectId, current, previous, intent, decisionPolicy, prevStage)],
+    ["provider-integration",(prevStage)=>providerIntegrationFinding(projectId, current, previous, decisionPolicy, prevStage)],
+    ["ai-drift",(prevStage)=>aiDriftFinding(projectId, current, previous, decisionPolicy, prevStage)]
   ];
   for(const [family,detect] of detectors)if(isEnabled(family)){
-    const finding=detect();if(finding)findings.push(finding);
+    const fId = findingId(projectId, family, "project");
+    const prevStage = previousFindings?.[fId]?.stage ?? null;
+    const finding=detect(prevStage);if(finding)findings.push(finding);
   }
   if(isEnabled("api-contract")){
     const contractFinding=detectEncodedIdContract(root,current.files,projectId);
@@ -1327,7 +1345,8 @@ export function analyzeProject(
   const findingsComparable = state.findings?.evidenceVersion === current.evidenceVersion &&
     (state.findings?.scoringPolicyKey || "local-v1") === scoringPolicy.key;
   const comparablePreviousFindings = findingsComparable ? state.findings?.items || {} : {};
-  const findings = buildFindings(identity.id, current, previous, intent, root, decisionPolicy,enabledMonitors).map(f => {
+  const demotionMargin = resolveDemotionMargin(decisionPolicy);
+  const findings = buildFindings(identity.id, current, previous, intent, root, decisionPolicy, enabledMonitors, comparablePreviousFindings).map(f => {
     const base = { ...f, requiresAttention: stageRank(f.stage) >= 3, userFacing: plainFinding(f) };
     return enrichFindingIntelligence(base, comparablePreviousFindings[f.id], intent, current.capturedAt, {persist});
   });
@@ -1366,6 +1385,7 @@ export function analyzeProject(
     schemaVersion: 1,
     evidenceVersion: current.evidenceVersion,
     scoringPolicy,
+    demotionMargin,
     project: {
       id: identity.id,
       repoId: identity.repoId,
@@ -1430,6 +1450,7 @@ export function readCachedAnalysis(
     schemaVersion: 1,
     evidenceVersion: latest.evidenceVersion,
     scoringPolicy: latest.scoringPolicy || scoringPolicyIdentity(null),
+    demotionMargin: resolveDemotionMargin(decisionPolicy),
     project: {
       id: identity.id,
       repoId: identity.repoId,
