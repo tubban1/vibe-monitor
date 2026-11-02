@@ -72,7 +72,7 @@ test("languages without an adapter stay unsupported",()=>{
 
 test("Go *_test.go scope detection: standard suffix without false positives",()=>{
   const { test: scopeTest } = { test: TEST_SCOPE_PATTERN.test.bind(TEST_SCOPE_PATTERN) };
-  for (const p of ["cli/deploy_test.go","pkg/util_test.go","test.go","internal/a_test.go"]) {
+  for (const p of ["cli/deploy_test.go","pkg/util_test.go","internal/a_test.go","nested/path/case_test.go"]) {
     assert.equal(scopeTest(p), true, p);
   }
   for (const p of ["cli/test_helper.go","pkg/testdata.go","pkg/util.go","pkg/my_test.golang"]) {
