@@ -80,4 +80,4 @@ export const PUBLIC_ENDPOINT_PATTERNS = [
 ];
 
 
-export const TEST_SCOPE_PATTERN = /(^|\/)(tests?|__tests__|specs?|acceptance|verification)(\/|$)|(^|\/)(?:(?:run-)?test|spec|verify|check|soak)[-_][^/]+\.[^.]+$|\.(test|spec)\.[^.]+$|_test\.go$/i;
+export const TEST_SCOPE_PATTERN = /(^|\/)(tests?|__tests__|specs?|acceptance|verification)(\/|$)|(^|\/)(?:(?:run-)?test|spec|verify|check|soak)[-_][^/]+\.(?!go$)[^.]+$|\.(test|spec)\.[^.]+$|_test\.go$/i;
