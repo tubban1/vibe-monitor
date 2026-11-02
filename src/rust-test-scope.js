@@ -7,7 +7,9 @@ parser.setLanguage(Rust);
 const IS_TEST = /#\s*\[\s*(?:cfg\s*\(\s*test\s*\)|test(?:\s*\([^]]*\))?)\s*\]/;
 
 export function rustTestRanges(source) {
-  const tree = parser.parse(source);
+  let tree;
+  try { tree = parser.parse(source); }
+  catch { return {ranges:[],parseErrors:true,unavailable:true}; }
   const spans = [];
   function visit(parent) {
     let testNext = false;

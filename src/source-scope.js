@@ -22,6 +22,8 @@ export function classifySourceScope(filePath, source = "") {
   // Rust inline tests are mixed source: never silently exclude the production code.
   if (base.endsWith(".rs") && /#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]/.test(source)) {
     const parsed=rustTestRanges(source);
+    if(parsed.unavailable) return {kind:"mixed",reason:"rust_parser_unavailable",
+      parserUnavailable:true,testRanges:[],testLoc:0};
     if (parsed.ranges.length) return {
       kind: "mixed", reason: "rust_inline_cfg_test",
       testRanges: parsed.ranges,
@@ -31,6 +33,8 @@ export function classifySourceScope(filePath, source = "") {
   }
   if(base.endsWith(".swift") && /@Test\b|XCTestCase\b/.test(source)){
     const parsed=swiftTestRanges(source);
+    if(parsed.unavailable)return {kind:"mixed",reason:"swift_parser_unavailable",
+      parserUnavailable:true,testRanges:[],testLoc:0};
     if(parsed.ranges.length)return {kind:"mixed",reason:"swift_inline_test",
       testRanges:parsed.ranges,testLoc:parsed.testLoc,parserErrors:parsed.parserErrors};
   }

@@ -10,7 +10,9 @@ export const swiftParser=new Parser();
 swiftParser.setLanguage(grammar);
 
 export function swiftTestRanges(source){
-  const root=swiftParser.parse(source).rootNode;
+  let root;
+  try { root=swiftParser.parse(source).rootNode; }
+  catch { return {ranges:[],testLoc:0,parserErrors:true,unavailable:true}; }
   const ranges=[];
   function walk(node){
     if(node.type==="function_declaration" && /^\s*@Test\b/.test(node.text)){

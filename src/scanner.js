@@ -296,7 +296,7 @@ function analyzeFile(root, absolutePath, gitEvidence) {
     isTestFile,
     isToolingFile,
     sourceScope,
-    productionLoc: sourceScope.kind === "mixed" ? Math.max(0,lines.length-(sourceScope.testLoc||0)) : (isTestFile || ["vendor","generated"].includes(sourceScope.kind) ? 0 : lines.length),
+    productionLoc: sourceScope.parserUnavailable ? 0 : sourceScope.kind === "mixed" ? Math.max(0,lines.length-(sourceScope.testLoc||0)) : (isTestFile || ["vendor","generated"].includes(sourceScope.kind) ? 0 : lines.length),
     testLoc: sourceScope.kind === "mixed" ? sourceScope.testLoc || 0 : (isTestFile ? lines.length : 0),
     assertionSignals,
     gitCommits: gitEvidence.fileCommitCounts[rel] || 0,
@@ -308,7 +308,8 @@ function applyDuplicationEvidence(files) {
   const byHash = new Map();
   const byPath = new Map(files.map(file => [file.path, file]));
   for (const file of files) {
-    if (file.isTestFile || file.isToolingFile || ["vendor","generated"].includes(file.sourceScope?.kind)) continue;
+    if (file.isTestFile || file.isToolingFile || file.sourceScope?.parserUnavailable ||
+      ["vendor","generated"].includes(file.sourceScope?.kind)) continue;
     for (const hash of file._duplicateBlockHashes || []) {
       let owners = byHash.get(hash);
       if (!owners) {
@@ -468,7 +469,8 @@ function structuralPriority(file) {
 }
 
 function shouldRunStructuralScan(file) {
-  if (!supportsStructuralEvidence(file.path) || file.isTestFile || file.isToolingFile ||
+  if (!supportsStructuralEvidence(file.path) || file.sourceScope?.parserUnavailable ||
+      file.isTestFile || file.isToolingFile ||
       ["vendor","generated"].includes(file.sourceScope?.kind)) return false;
   const cochangeCount = file.cochangePartners.filter(item => item.count >= 2).length;
   if (file.loc >= 450 && (
@@ -634,6 +636,7 @@ export function scanProject(root, { limits = {} } = {}) {
       correctedPythonProductionFiles,
       productionLoc: files.reduce((n, f) => n + (f.productionLoc || 0), 0),
       mixedTestLoc: files.filter(f=>f.sourceScope?.kind==="mixed").reduce((n,f)=>n+(f.testLoc||0),0),
+      unparsedMixedFiles: files.filter(f=>f.sourceScope?.parserUnavailable).length,
       testFiles: files.filter(file => file.isTestFile).length,
       testLoc: files.filter(file => file.isTestFile).reduce((n, file) => n + file.loc, 0),
       assertionSignals: files.reduce((n, file) => n + file.assertionSignals, 0),

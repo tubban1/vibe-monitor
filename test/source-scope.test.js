@@ -90,3 +90,13 @@ test("Swift inline @Test and XCTestCase classes are mixed, not scored as product
   assert.ok(!masked.includes("#expect"));
  }
 });
+
+test("unparseable mixed test modules never produce positive maintained production LOC",()=>{
+ const fs=process.getBuiltinModule("node:fs");
+ const source=fs.readFileSync(new URL("../src/source-scope.js",import.meta.url),"utf8");
+ const scanner=fs.readFileSync(new URL("../src/scanner.js",import.meta.url),"utf8");
+ const engine=fs.readFileSync(new URL("../src/engine.js",import.meta.url),"utf8");
+ assert.match(source,/parserUnavailable/);
+ assert.match(scanner,/unparsedMixedFiles/);
+ assert.match(engine,/parserUnavailable/);
+});

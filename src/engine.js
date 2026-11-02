@@ -18,6 +18,7 @@ function fileMap(snapshot) {
 
 function runtimeFiles(snapshot) {
   return (snapshot?.files || []).filter(file => !file.isTestFile && !file.isToolingFile &&
+    !file.sourceScope?.parserUnavailable &&
     !["vendor","generated"].includes(file.sourceScope?.kind))
     .map(file => file.sourceScope?.kind === "mixed"
       ? {...file, rawLoc: file.loc, loc: file.productionLoc ?? file.loc}
