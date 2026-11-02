@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {analyzeStructuralFile,supportsStructuralEvidence} from "../src/structural-evidence.js";
 import {componentScript,STRUCTURAL_LANGUAGES} from "../src/languages.js";
+import {TEST_SCOPE_PATTERN} from "../src/constants.js";
 
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),"vm-lang-"));
 const file=(name,text)=>{const p=path.join(dir,name);fs.writeFileSync(p,text);return p;};
@@ -67,4 +68,14 @@ test("languages without an adapter stay unsupported",()=>{
   assert.equal(analyzeStructuralFile(file(path.basename(p),"x"),p),null,p);
  }
  assert.deepEqual([...STRUCTURAL_LANGUAGES].sort(),["javascript","python","svelte","tsx","typescript","vue"]);
+});
+
+test("Go *_test.go scope detection: standard suffix without false positives",()=>{
+  const { test: scopeTest } = { test: TEST_SCOPE_PATTERN.test.bind(TEST_SCOPE_PATTERN) };
+  for (const p of ["cli/deploy_test.go","pkg/util_test.go","internal/a_test.go","nested/path/case_test.go"]) {
+    assert.equal(scopeTest(p), true, p);
+  }
+  for (const p of ["cli/test_helper.go","pkg/testdata.go","pkg/util.go","pkg/my_test.golang"]) {
+    assert.equal(scopeTest(p), false, p);
+  }
 });
