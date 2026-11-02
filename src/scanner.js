@@ -6,6 +6,7 @@ import {
 } from "./constants.js";
 import { countMatches, normalizeRel, sha256 } from "./utils.js";
 import { classifySourceScope, repairPythonImportReachability } from "./source-scope.js";
+import { maskSourceRanges } from "./rust-test-scope.js";
 import { collectGitEvidence } from "./git-evidence.js";
 import {
   analyzeStructuralFile,
@@ -170,7 +171,11 @@ function analyzeFile(root, absolutePath, gitEvidence) {
   let text;
   try { text = fs.readFileSync(absolutePath, "utf8"); } catch { return null; }
   const rel = normalizeRel(root, absolutePath);
+  const sourceScope = classifySourceScope(rel, text);
+  const isTestFile = sourceScope.kind === "test";
   const lines = text.split(/\r?\n/);
+  // Only authored production AST/heuristics enter maintenance signals.
+  if (sourceScope.kind === "mixed") text = maskSourceRanges(text,sourceScope.testRanges);
   const imports = importSpecifiers(text);
   const functionCount =
     countMatches(text, /\bfunction\s+[A-Za-z_$][\w$]*\s*\(/g) +
@@ -244,8 +249,6 @@ function analyzeFile(root, absolutePath, gitEvidence) {
     countMatches(text, /opentelemetry|@opentelemetry|\botel\b|\btelemetry\b|RuntimeEvent|runtimeEvent|publicEvent|eventJournal|traceparent|startSpan\s*\(|createCounter\s*\(|createHistogram\s*\(|prom-client|prometheus-client|sentry\.|@sentry|datadog/gi);
   const correlationSignals =
     countMatches(text, /correlation[_-]?id|request[_-]?id|trace[_-]?id|span[_-]?id/gi);
-  const sourceScope = classifySourceScope(rel, text);
-  const isTestFile = sourceScope.kind === "test";
   const isToolingFile = /^(scripts?|docs?|fixtures?|benchmarks?|examples?|dev)(\/|$)/i.test(rel);
   const assertionSignals = isTestFile
     ? countMatches(text, /\bexpect\s*\(|\bassert(?:Equal|True|False|Raises)?\s*\(|\bassert\s+|should\.|toEqual\s*\(|toBe\s*\(/g)
@@ -293,6 +296,8 @@ function analyzeFile(root, absolutePath, gitEvidence) {
     isTestFile,
     isToolingFile,
     sourceScope,
+    productionLoc: sourceScope.parserUnavailable ? 0 : sourceScope.kind === "mixed" ? Math.max(0,lines.length-(sourceScope.testLoc||0)) : (isTestFile || ["vendor","generated"].includes(sourceScope.kind) ? 0 : lines.length),
+    testLoc: sourceScope.kind === "mixed" ? sourceScope.testLoc || 0 : (isTestFile ? lines.length : 0),
     assertionSignals,
     gitCommits: gitEvidence.fileCommitCounts[rel] || 0,
     cochangePartners: (gitEvidence.cochange[rel] || []).slice(0, 10)
@@ -303,6 +308,8 @@ function applyDuplicationEvidence(files) {
   const byHash = new Map();
   const byPath = new Map(files.map(file => [file.path, file]));
   for (const file of files) {
+    if (file.isTestFile || file.isToolingFile || file.sourceScope?.parserUnavailable ||
+      ["vendor","generated"].includes(file.sourceScope?.kind)) continue;
     for (const hash of file._duplicateBlockHashes || []) {
       let owners = byHash.get(hash);
       if (!owners) {
@@ -462,7 +469,8 @@ function structuralPriority(file) {
 }
 
 function shouldRunStructuralScan(file) {
-  if (!supportsStructuralEvidence(file.path) || file.isTestFile || file.isToolingFile ||
+  if (!supportsStructuralEvidence(file.path) || file.sourceScope?.parserUnavailable ||
+      file.isTestFile || file.isToolingFile ||
       ["vendor","generated"].includes(file.sourceScope?.kind)) return false;
   const cochangeCount = file.cochangePartners.filter(item => item.count >= 2).length;
   if (file.loc >= 450 && (
@@ -626,6 +634,9 @@ export function scanProject(root, { limits = {} } = {}) {
         loc: files.filter(file => file.sourceScope?.kind === kind).reduce((n, file) => n + file.loc, 0)
       }])),
       correctedPythonProductionFiles,
+      productionLoc: files.reduce((n, f) => n + (f.productionLoc || 0), 0),
+      mixedTestLoc: files.filter(f=>f.sourceScope?.kind==="mixed").reduce((n,f)=>n+(f.testLoc||0),0),
+      unparsedMixedFiles: files.filter(f=>f.sourceScope?.parserUnavailable).length,
       testFiles: files.filter(file => file.isTestFile).length,
       testLoc: files.filter(file => file.isTestFile).reduce((n, file) => n + file.loc, 0),
       assertionSignals: files.reduce((n, file) => n + file.assertionSignals, 0),

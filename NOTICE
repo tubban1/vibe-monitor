@@ -5,9 +5,12 @@ Third-party direct runtime packages resolved by the audited package-lock:
 - @modelcontextprotocol/sdk 1.32.1 — MIT
 - json5 2.2.3 — MIT
 - tree-sitter 0.21.1 — MIT
+- tree-sitter-go 0.21.2 — MIT
 - tree-sitter-javascript 0.21.4 — MIT
 - tree-sitter-python 0.21.0 — MIT
+- tree-sitter-rust 0.21.0 — MIT
 - tree-sitter-typescript 0.23.2 — MIT
+- web-tree-sitter 0.25.10 — MIT
 - zod 4.6.7 — MIT
 
 Build-only direct dependency:
@@ -20,3 +23,8 @@ Transitive npm dependencies retain their individual licenses and notices.
 This list is a verified technical inventory, not an IP ownership or legal sign-off.
 Full attribution, contributor rights and native-binary license approval are
 required before public distribution.
+
+
+Swift syntax grammar dependency:
+- @lumis-sh/wasm-swift 0.26.3 — MIT, installed from npm with independent license notice.
+- Grammar loaded from that npm package at runtime; no binary committed in this repository.

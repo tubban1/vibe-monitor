@@ -6,7 +6,7 @@
 
 ## Get started — official stable release
 
-The open-source client is distributed through npm as **`@vibe-monitor/setup@latest`**. The source tree currently prepares **`@vibe-monitor/setup@1.0.13`**, which is not yet published; the last independently verified npm stable version was **`@vibe-monitor/setup@1.0.11`** (2026-11-02).
+The open-source client is distributed through npm as **`@vibe-monitor/setup@latest`**. The source tree currently prepares **`@vibe-monitor/setup@1.0.14`**, which is not yet published; the last independently verified npm stable version was **`@vibe-monitor/setup@1.0.11`** (2026-11-02).
 
 ```bash
 npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install

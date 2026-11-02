@@ -61,7 +61,7 @@ test("single client dependency lock has reviewed SPDX license categories",{
 },()=>{
  const lock=JSON.parse(fs.readFileSync(path.join(root,"package-lock.json"),"utf8"));
  const packages=Object.entries(lock.packages).filter(([n])=>n.startsWith("node_modules/"));
- assert.equal(packages.length,130,"dependency count changed: refresh attribution review");
+ assert.equal(packages.length,135,"dependency count changed: refresh attribution review");
  for(const [name,pkg] of packages){
   assert.ok(["MIT","ISC","BSD-2-Clause","BSD-3-Clause"].includes(pkg.license),
    "Unreviewed dependency license "+name+" : "+String(pkg.license));
@@ -70,7 +70,7 @@ test("single client dependency lock has reviewed SPDX license categories",{
  }
  const manifest=JSON.parse(fs.readFileSync(path.join(root,"package.json"),"utf8"));
  const direct=Object.keys({...manifest.dependencies,...manifest.devDependencies});
- assert.equal(direct.length,8,"Direct dependency review set changed");
+ assert.equal(direct.length,12,"Direct dependency review set changed");
  for(const name of direct){
   const folder=path.join(root,"node_modules",name);
   const metadata=JSON.parse(fs.readFileSync(path.join(folder,"package.json"),"utf8"));

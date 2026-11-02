@@ -2,6 +2,8 @@ import path from "node:path";
 import JavaScript from "tree-sitter-javascript";
 import TypeScript from "tree-sitter-typescript";
 import Python from "tree-sitter-python";
+import Go from "tree-sitter-go";
+import Rust from "tree-sitter-rust";
 
 // Language adapters for structural evidence (ROADMAP §4 L0). Each adapter
 // says how to find functions, calls and imports in one tree-sitter grammar.
@@ -32,16 +34,47 @@ const PYTHON = {
   }
 };
 
+const GO = {
+  functionTypes: new Set(["function_declaration", "method_declaration"]),
+  callTypes: new Set(["call_expression"]),
+  nameParents: {},
+  importSpec(node, text) {
+    if (node.type !== "import_spec") return undefined;
+    const source = node.childForFieldName?.("path");
+    return source ? text(source).replace(/^["]/, "").replace(/["]$/, "") : null;
+  }
+};
+const RUST = {
+  functionTypes: new Set(["function_item"]),
+  callTypes: new Set(["call_expression"]),
+  nameParents: {},
+  importSpec(node, text) {
+    if (node.type !== "use_declaration") return undefined;
+    return text(node).replace(/^use\s+/, "").replace(/;$/, "").trim();
+  }
+};
+const SWIFT = {
+  functionTypes: new Set(["function_declaration", "init_declaration"]),
+  callTypes: new Set(["call_expression"]),
+  nameParents: {},
+  importSpec(node, text) {
+    if (node.type !== "import_declaration") return undefined;
+    return text(node).replace(/^import\s+/, "").trim() || null;
+  }
+};
 const ADAPTERS = {
   javascript: { ...ECMASCRIPT, grammar: JavaScript },
   typescript: { ...ECMASCRIPT, grammar: TypeScript.typescript },
   tsx: { ...ECMASCRIPT, grammar: TypeScript.tsx },
-  python: { ...PYTHON, grammar: Python }
+  python: { ...PYTHON, grammar: Python },
+  go: { ...GO, grammar: Go },
+  rust: { ...RUST, grammar: Rust },
+  swift: { ...SWIFT, grammar: null, wasm: true }
 };
 
 const BY_EXTENSION = {
   ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-  ".ts": "typescript", ".tsx": "tsx", ".py": "python"
+  ".ts": "typescript", ".tsx": "tsx", ".py": "python", ".go": "go", ".rs": "rust", ".swift": "swift"
 };
 
 // Single-file components: only the <script> block is code. It is parsed with
