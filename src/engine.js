@@ -17,7 +17,8 @@ function fileMap(snapshot) {
 }
 
 function runtimeFiles(snapshot) {
-  return (snapshot?.files || []).filter(file => !file.isTestFile && !file.isToolingFile);
+  return (snapshot?.files || []).filter(file => !file.isTestFile && !file.isToolingFile &&
+    !["vendor","generated"].includes(file.sourceScope?.kind));
 }
 
 function sumField(files, field) {
@@ -536,7 +537,7 @@ function componentFinding(projectId, file, previousFile, gitCommitCount, decisio
   // Test code has its own verification-architecture concerns. A large test file
   // must not by itself tell the product code to componentize. Keep it as watch-only
   // until the dedicated Testing & Verification monitor exists.
-  const isTestScope = TEST_SCOPE_PATTERN.test(file.path);
+  const isTestScope = file.isTestFile ?? TEST_SCOPE_PATTERN.test(file.path);
   if (isTestScope && stageRank(stage) >= 3) stage = "S2";
 
   if (stage === "S1") return null;

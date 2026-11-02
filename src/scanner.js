@@ -2,9 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   EVIDENCE_VERSION, SOURCE_EXTENSIONS, SOURCE_LANGUAGE_BY_EXTENSION, IGNORED_DIRS, RESPONSIBILITY_PATTERNS,
-  PLATFORM_PATTERNS, CREDENTIAL_PATTERNS, PUBLIC_ENDPOINT_PATTERNS, TEST_SCOPE_PATTERN
+  PLATFORM_PATTERNS, CREDENTIAL_PATTERNS, PUBLIC_ENDPOINT_PATTERNS
 } from "./constants.js";
 import { countMatches, normalizeRel, sha256 } from "./utils.js";
+import { classifySourceScope, repairPythonImportReachability } from "./source-scope.js";
 import { collectGitEvidence } from "./git-evidence.js";
 import {
   analyzeStructuralFile,
@@ -94,6 +95,7 @@ function importSpecifiers(text) {
     /\bimport\s+(?:[^"'\n]+?\s+from\s+)?["']([^"']+)["']/g,
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
     /\bfrom\s+([A-Za-z0-9_.]+)\s+import\b/g,
+    /^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)/gm,
     /^\s*use\s+([A-Za-z0-9_:]+)/gm
   ];
   for (const regex of patterns) {
@@ -242,7 +244,8 @@ function analyzeFile(root, absolutePath, gitEvidence) {
     countMatches(text, /opentelemetry|@opentelemetry|\botel\b|\btelemetry\b|RuntimeEvent|runtimeEvent|publicEvent|eventJournal|traceparent|startSpan\s*\(|createCounter\s*\(|createHistogram\s*\(|prom-client|prometheus-client|sentry\.|@sentry|datadog/gi);
   const correlationSignals =
     countMatches(text, /correlation[_-]?id|request[_-]?id|trace[_-]?id|span[_-]?id/gi);
-  const isTestFile = TEST_SCOPE_PATTERN.test(rel);
+  const sourceScope = classifySourceScope(rel, text);
+  const isTestFile = sourceScope.kind === "test";
   const isToolingFile = /^(scripts?|docs?|fixtures?|benchmarks?|examples?|dev)(\/|$)/i.test(rel);
   const assertionSignals = isTestFile
     ? countMatches(text, /\bexpect\s*\(|\bassert(?:Equal|True|False|Raises)?\s*\(|\bassert\s+|should\.|toEqual\s*\(|toBe\s*\(/g)
@@ -289,6 +292,7 @@ function analyzeFile(root, absolutePath, gitEvidence) {
     correlationSignals,
     isTestFile,
     isToolingFile,
+    sourceScope,
     assertionSignals,
     gitCommits: gitEvidence.fileCommitCounts[rel] || 0,
     cochangePartners: (gitEvidence.cochange[rel] || []).slice(0, 10)
@@ -458,7 +462,8 @@ function structuralPriority(file) {
 }
 
 function shouldRunStructuralScan(file) {
-  if (!supportsStructuralEvidence(file.path) || file.isTestFile || file.isToolingFile) return false;
+  if (!supportsStructuralEvidence(file.path) || file.isTestFile || file.isToolingFile ||
+      ["vendor","generated"].includes(file.sourceScope?.kind)) return false;
   const cochangeCount = file.cochangePartners.filter(item => item.count >= 2).length;
   if (file.loc >= 450 && (
     file.responsibilities.length >= 3 ||
@@ -522,7 +527,7 @@ function applyStructuralEvidence(root, files, {
 function sourceLanguageCounts(files) {
   const counts = {};
   for (const file of files) {
-    if (file.isTestFile) continue;
+    if (file.isTestFile || ["vendor","generated"].includes(file.sourceScope?.kind)) continue;
     const language = SOURCE_LANGUAGE_BY_EXTENSION[path.extname(file.path).toLowerCase()];
     if (language) counts[language] = (counts[language] || 0) + 1;
   }
@@ -551,6 +556,7 @@ export function scanProject(root, { limits = {} } = {}) {
     if (analyzed) files.push(analyzed);
   }
   scanGuard(context, "file_analysis");
+  const correctedPythonProductionFiles = repairPythonImportReachability(files);
   const duplication = applyDuplicationEvidence(files);
   scanGuard(context, "duplication");
   const graph = buildGraph(files);
@@ -615,6 +621,11 @@ export function scanProject(root, { limits = {} } = {}) {
       structuredLogSignals: files.reduce((n, file) => n + file.structuredLogSignals, 0),
       telemetrySignals: files.reduce((n, file) => n + file.telemetrySignals, 0),
       correlationSignals: files.reduce((n, file) => n + file.correlationSignals, 0),
+      scopeCoverage: Object.fromEntries(["production","test","generated","vendor","tooling","mixed"].map(kind => [kind, {
+        files: files.filter(file => file.sourceScope?.kind === kind).length,
+        loc: files.filter(file => file.sourceScope?.kind === kind).reduce((n, file) => n + file.loc, 0)
+      }])),
+      correctedPythonProductionFiles,
       testFiles: files.filter(file => file.isTestFile).length,
       testLoc: files.filter(file => file.isTestFile).reduce((n, file) => n + file.loc, 0),
       assertionSignals: files.reduce((n, file) => n + file.assertionSignals, 0),
