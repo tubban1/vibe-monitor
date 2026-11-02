@@ -63,11 +63,11 @@ test("script line offset maps function lines back to the component file",()=>{
 });
 
 test("languages without an adapter stay unsupported",()=>{
- for(const p of ["main.go","Main.java","lib.rs","App.cs"]){
+ for(const p of ["Main.java","App.cs"]){
   assert.equal(supportsStructuralEvidence(p),false,p);
   assert.equal(analyzeStructuralFile(file(path.basename(p),"x"),p),null,p);
  }
- assert.deepEqual([...STRUCTURAL_LANGUAGES].sort(),["javascript","python","svelte","tsx","typescript","vue"]);
+ assert.deepEqual([...STRUCTURAL_LANGUAGES].sort(),["go","javascript","python","rust","svelte","swift","tsx","typescript","vue"]);
 });
 
 test("Go *_test.go scope detection: standard suffix without false positives",()=>{
@@ -78,4 +78,31 @@ test("Go *_test.go scope detection: standard suffix without false positives",()=
   for (const p of ["cli/test_helper.go","pkg/testdata.go","pkg/util.go","pkg/my_test.golang"]) {
     assert.equal(scopeTest(p), false, p);
   }
+});
+
+test("Go and Rust AST adapters parse functions, calls and imports",()=>{
+ const go=analyzeStructuralFile(file("worker.go",'package main\nimport "fmt"\nfunc process() int { return helper() }\nfunc helper() int { fmt.Println("ok"); return 1 }\n'),"src/worker.go");
+ assert.equal(go.language,"go");
+ assert.equal(go.functionCount,2);
+ assert.equal(go.localCallEdges,1);
+ assert.equal(go.parseErrors,0);
+ const rust=analyzeStructuralFile(file("worker.rs",'use std::fmt;\nfn process() -> i32 { helper() }\nfn helper() -> i32 { 1 }\n#[cfg(test)] mod tests { #[test] fn test_process(){ assert_eq!(process(),1); }}\n'),"src/worker.rs");
+ assert.equal(rust.language,"rust");
+ assert.equal(rust.functionCount,2,"test function must be excluded");
+ assert.equal(rust.localCallEdges,1);
+ assert.ok(rust.excludedTestRegions>=1);
+ assert.equal(rust.parseErrors,0);
+});
+
+test("Swift WASM structural grammar identifies functions, local calls and mixed test regions",()=>{
+ const src='import Foundation\nfunc doWork() { helper() }\nfunc helper() {}\n';
+ const r=analyzeStructuralFile(file("Worker.swift",src),"Sources/Worker.swift");
+ assert.equal(r.language,"swift");
+ assert.equal(r.functionCount,2);
+ assert.equal(r.localCallEdges,1);
+ assert.equal(r.parseErrors,0);
+ const withTests='import Testing\nfunc run() { helper() }\n@Test func testRun() { #expect(true) }\nfunc helper() {}\n';
+ const testScan=analyzeStructuralFile(file("Mixed.swift",withTests),"Sources/Mixed.swift");
+ assert.equal(testScan.functionCount,2,"@Test function is not production");
+ assert.ok(testScan.excludedTestRegions>0);
 });

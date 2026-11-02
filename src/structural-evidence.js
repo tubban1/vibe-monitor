@@ -3,6 +3,8 @@ import path from "node:path";
 import Parser from "tree-sitter";
 import { RESPONSIBILITY_PATTERNS } from "./constants.js";
 import { resolveLanguage, supportsLanguage } from "./languages.js";
+import { rustTestRanges, withinRanges } from "./rust-test-scope.js";
+import { swiftParser, swiftTestRanges } from "./swift-parse.js";
 
 const RESPONSIBILITY_GROUPS = Object.freeze({
   presentation: new Set(["ui", "rendering"]),
@@ -102,14 +104,17 @@ export function analyzeStructuralFile(absolutePath, relativePath = absolutePath)
   const resolved = resolveLanguage(relativePath, () => fs.readFileSync(absolutePath, "utf8"));
   if (!resolved) return null;
   const { adapter, source, lineOffset } = resolved;
-  const parser = new Parser();
-  parser.setLanguage(adapter.grammar);
+  const parser = resolved.language === "swift" ? swiftParser : new Parser();
+  if(resolved.language !== "swift")parser.setLanguage(adapter.grammar);
   const tree = parser.parse(source);
   const root = tree.rootNode;
+  const testRanges = resolved.language === "rust" ? rustTestRanges(source).ranges :
+    resolved.language === "swift" ? swiftTestRanges(source).ranges : [];
+  const productionOnly = node => !withinRanges(node,testRanges);
 
   const functions = [];
   walk(root, node => {
-    if (!adapter.functionTypes.has(node.type)) return;
+    if (!adapter.functionTypes.has(node.type) || !productionOnly(node)) return;
     const name = functionName(node, source, adapter);
     const text = nodeText(source, node);
     const responsibilities = responsibilityNames(text);
@@ -141,7 +146,7 @@ export function analyzeStructuralFile(absolutePath, relativePath = absolutePath)
 
   for (const fn of namedFunctions) {
     walk(fn.node, node => {
-      if (!adapter.callTypes.has(node.type)) return;
+      if (!adapter.callTypes.has(node.type) || !productionOnly(node)) return;
       const target = callTarget(node, source);
       if (!target || !localNames.has(target) || target === fn.name) return;
       const edgeKey = fn.name + "->" + target;
@@ -187,6 +192,7 @@ export function analyzeStructuralFile(absolutePath, relativePath = absolutePath)
   return {
     parser: "tree-sitter",
     language: resolved.language,
+    excludedTestRegions: testRanges.length,
     parseErrors: countErrors(root),
     functionCount: functions.length,
     namedFunctionCount: namedFunctions.length,

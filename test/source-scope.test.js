@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { classifySourceScope } from "../src/source-scope.js";
+import { rustTestRanges, maskSourceRanges } from "../src/rust-test-scope.js";
 import { scanProject } from "../src/scanner.js";
 
 test("source scope: audited languages, generated/vendored and negative controls", () => {
@@ -46,4 +47,46 @@ test("scanner reclassifies import-reachable Python test_* production modules; ke
     assert.equal(find("src/extra.rs").sourceScope.kind,"mixed");
     assert.equal(scan.summary?.scopeCoverage?.production?.files >= 2,true);
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test("Rust inline test code is isolated by AST ranges without removing production",()=>{
+ const src='fn run()->i32 {1}\n#[cfg(test)]\nmod tests {\n #[test] fn fails() { assert!(false); }\n}\nfn ship()->i32 { run() }\n';
+ const scope=classifySourceScope("src/run.rs",src);
+ assert.equal(scope.kind,"mixed");
+ assert.ok(scope.testLoc>=2);
+ const masked=maskSourceRanges(src,scope.testRanges);
+ assert.match(masked,/fn run/);
+ assert.match(masked,/fn ship/);
+ assert.ok(!masked.includes("assert!(false)"));
+ assert.ok(!masked.includes("fn fails"));
+ assert.equal(masked.split("\n").length,src.split("\n").length);
+ assert.deepEqual(rustTestRanges('fn run()->i32 {1}').ranges,[]);
+});
+
+test("generated and vendor duplicates must not affect production duplicate counts",()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"vm-scope-duplicates-"));
+ try{
+   const repeated="export function shared(){ const x=5; const y=6; return x+y; }\n".repeat(10);
+   for(const [p,src] of [["src/a.ts",repeated],["generated/b.ts",repeated],["third_party/c.ts",repeated]]){
+     const f=path.join(dir,p);fs.mkdirSync(path.dirname(f),{recursive:true});fs.writeFileSync(f,src);
+   }
+   const scan=scanProject(dir,{limits:{maxElapsedMs:10000}});
+   assert.equal(scan.files.find(f=>f.path==="src/a.ts").duplicateBlockCount,0);
+   assert.equal(scan.summary.scopeCoverage.generated.files,1);
+   assert.equal(scan.summary.scopeCoverage.vendor.files,1);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test("Swift inline @Test and XCTestCase classes are mixed, not scored as production",()=>{
+ const x='import Testing\nfunc production(){ work() }\n@Test func check() { #expect(true) }\n';
+ const y='import XCTest\nclass Unit: XCTestCase {func testFoo(){ XCTAssertTrue(true) }}\nfunc real() {}\n';
+ for(const source of [x,y]){
+  const s=classifySourceScope("src/main.swift",source);
+  assert.equal(s.kind,"mixed");
+  assert.ok(s.testRanges.length);
+  assert.ok(s.testLoc>=1);
+  const masked=maskSourceRanges(source,s.testRanges);
+  assert.ok(!masked.includes("XCTAssertTrue"));
+  assert.ok(!masked.includes("#expect"));
+ }
 });

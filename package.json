@@ -1,6 +1,6 @@
 {
   "name": "@vibe-monitor/setup",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "private": false,
   "description": "Vibe Monitor open-source architecture intelligence client",
   "type": "module",
@@ -29,12 +29,16 @@
     "qa:beta41-real-package": "node test/oss-real-beta41-migration-uat.mjs"
   },
   "dependencies": {
+    "@lumis-sh/wasm-swift": "0.26.3",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "json5": "^2.2.3",
     "tree-sitter": "^0.21.1",
+    "tree-sitter-go": "0.21.2",
     "tree-sitter-javascript": "^0.21.4",
     "tree-sitter-python": "^0.21.0",
+    "tree-sitter-rust": "0.21.0",
     "tree-sitter-typescript": "^0.23.2",
+    "web-tree-sitter": "0.25.10",
     "zod": "^4.6.7"
   },
   "devDependencies": {
