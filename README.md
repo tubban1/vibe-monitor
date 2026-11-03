@@ -35,7 +35,7 @@ The npm package implements both the installer and MCP server. The server's offic
 
 ## Get started — official stable release
 
-The official open-source MCP server and installer are distributed through npm as **`@vibe-monitor/setup@latest`**. As verified on 2026-11-03, npm `latest` is **`1.0.14`**; the GitHub release and npm release workflow are complete.
+The official open-source MCP server and installer are distributed through npm as **`@vibe-monitor/setup@latest`**. As verified on 2026-11-03, npm `latest` is **`@vibe-monitor/setup@1.0.14`**; the GitHub release and npm release workflow are complete.
 
 ```bash
 npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
