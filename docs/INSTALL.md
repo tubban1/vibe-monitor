@@ -1,6 +1,6 @@
 # Install Vibe Monitor — official stable client
 
-The **public stable** release is `@vibe-monitor/setup@latest` (currently version `1.0.2`). One installer serves Free/Pro/Team. No activation code is needed.
+The **public stable** release is `@vibe-monitor/setup@latest` (verified npm `latest`: `1.0.14` on 2026-11-03). One installer serves Free/Pro/Team. No activation code is needed.
 
 ## Install
 

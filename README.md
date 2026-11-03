@@ -4,9 +4,38 @@
 
 **A local architecture advisor for AI coding workflows.** AI agents ship features fast; Vibe Monitor helps you see when architectural complexity is accumulating and what actually needs attention.
 
+## The open-source MCP server
+
+This repository contains an **actual local MCP server** (stdio transport), not only an npm installer or a cloud dashboard. The MCP server runs on your own computer and exposes read-only architecture checks and change-history snapshots to an MCP-capable coding agent. It does not rewrite your project source.
+
+Example MCP tools implemented in [`src/mcp.js`](src/mcp.js):
+
+| MCP tool | What it does locally |
+| --- | --- |
+| `vibe_session_start` | Start or resume a bounded assessment of one coding project |
+| `vibe_project_status` | Read the current project's architecture signals without creating a snapshot |
+| `vibe_checkpoint` | Record a post-change snapshot to compare structural evolution |
+| `vibe_findings` | Show prioritized findings and concrete next steps |
+| `vibe_evolution_audit` | Inspect architecture evolution across recorded checkpoints |
+| `vibe_version` | Inspect the actual running/installed version |
+
+**Install and register the local MCP server with supported agents:**
+
+```sh
+npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
+```
+
+**Direct stdio MCP command** (for clients that configure `command` / `args` themselves; Node.js 22+):
+
+```sh
+npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest mcp
+```
+
+The npm package implements both the installer and MCP server. The server's official name is `io.github.tubban1/vibe-monitor`; its [registry manifest](server.json) declares the local `mcp` argument. Some analysis features depend on the signed Cloud scoring policy; installing does not grant cloud access to your source code. See the telemetry details below.
+
 ## Get started — official stable release
 
-The open-source client is distributed through npm as **`@vibe-monitor/setup@latest`**. The source tree currently prepares **`@vibe-monitor/setup@1.0.14`**, which is not yet published; the last independently verified npm stable version was **`@vibe-monitor/setup@1.0.11`** (2026-11-02).
+The official open-source MCP server and installer are distributed through npm as **`@vibe-monitor/setup@latest`**. As verified on 2026-11-03, npm `latest` is **`1.0.14`**; the GitHub release and npm release workflow are complete.
 
 ```bash
 npx -y --registry=https://registry.npmjs.org @vibe-monitor/setup@latest install
