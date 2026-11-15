@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { atomicJsonWrite, safeJsonRead } from "./utils.js";
-import { decryptJson } from "./secure-store.js";
+import { decryptJson, readSecret } from "./secure-store.js";
 import { projectStateDir } from "./history.js";
 
 export const INTENT_FIELDS = Object.freeze({
@@ -45,6 +45,27 @@ function migrateEncryptedIntent(projectId) {
 export function loadExplicitIntent(projectId) {
   migrateEncryptedIntent(projectId);
   return safeJsonRead(intentJsonFile(projectId), null)?.values || {};
+}
+
+// Inspect intent without migration, secret creation, state writes or network.
+export function previewExplicitIntent(projectId, patch={}) {
+  const json=safeJsonRead(intentJsonFile(projectId),null);
+  const encrypted=json?null:safeJsonRead(intentEncryptedFile(projectId),null);
+  let before;
+  if(json)before=json.values||{};
+  else if(encrypted){
+    if(!readSecret("project-state-key"))throw Error("intent_encryption_key_unavailable");
+    before=decryptJson(encrypted,intentEncryptedFile(projectId))?.values||{};
+  }else before={};
+  const after={...before},changes=[];
+  for(const [field,value] of Object.entries(patch)){
+    if(!INTENT_FIELDS[field]?.includes(value))throw Error("invalid_intent_"+field);
+    const prior=before[field]||"unknown";
+    if(value==="unknown")delete after[field];else after[field]=value;
+    if(prior!==value)changes.push({field,from:prior,to:value});
+  }
+  return {before,after,changes,changed:changes.length>0,
+    writesPlanned:changes.length?["local intent.json"]:[]};
 }
 
 export function saveExplicitIntent(projectId, patch) {
