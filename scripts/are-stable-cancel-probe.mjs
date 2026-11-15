@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {execFileSync} from "node:child_process";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath,pathToFileURL} from "node:url";
 import {Client} from "@modelcontextprotocol/sdk/client/index.js";
 import {StdioClientTransport} from "@modelcontextprotocol/sdk/client/stdio.js";
 const repo=path.resolve(fileURLToPath(new URL("../",import.meta.url)));
@@ -22,7 +22,7 @@ const env={...process.env,HOME:tmp,USERPROFILE:tmp,VIBE_MONITOR_HOME:home,
  VIBE_MONITOR_TEST_SECRET_DIR:path.join(tmp,"secret")};
 const client=new Client({name:"vibe-are-active-cancel",version:"1.0.0"});
 const transport=new StdioClientTransport({command:process.execPath,args:[
- "--import",block,path.join(repo,"src/cli.js"),"mcp","--agent","antigravity"],cwd:project,env});
+ "--import",pathToFileURL(block).href,path.join(repo,"src/cli.js"),"mcp","--agent","antigravity"],cwd:project,env});
 const text=result=>JSON.parse(result.content.find(c=>c.type==="text").text);
 let result={};
 try{

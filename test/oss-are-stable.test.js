@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath,pathToFileURL} from "node:url";
 import {execFileSync} from "node:child_process";
 import {Client} from "@modelcontextprotocol/sdk/client/index.js";
 import {StdioClientTransport} from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -39,7 +39,7 @@ async function connect(t){
   VIBE_MONITOR_TEST_MASTER_KEY:"f".repeat(64),
   VIBE_MONITOR_TEST_SECRET_DIR:path.join(home,"secrets")};
  const transport=new StdioClientTransport({command:process.execPath,
-  args:["--import",mock,path.join(source,"src/cli.js"),"mcp","--agent","antigravity"],
+  args:["--import",pathToFileURL(mock).href,path.join(source,"src/cli.js"),"mcp","--agent","antigravity"],
   cwd:source,env});
  const client=new Client({name:"vibe-public-stable-are-contract",version:"1.0.0"});
  await client.connect(transport);

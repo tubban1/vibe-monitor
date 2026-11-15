@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath,pathToFileURL} from "node:url";
 import {performance} from "node:perf_hooks";
 import {Client} from "@modelcontextprotocol/sdk/client/index.js";
 import {StdioClientTransport} from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -20,7 +20,7 @@ const env={...process.env,HOME:home,USERPROFILE:home,VIBE_MONITOR_HOME:path.join
  VIBE_MONITOR_TEST_SECRET_DIR:path.join(home,"secrets"),
  VIBE_MONITOR_TEST_MASTER_KEY:"f".repeat(64),VIBE_MONITOR_TEST_SOURCE_INSTALL:"1"};
 const transport=new StdioClientTransport({command:process.execPath,
- args:["--import",mock,entry,"mcp","--agent","antigravity"],cwd:project,env});
+ args:["--import",pathToFileURL(mock).href,entry,"mcp","--agent","antigravity"],cwd:project,env});
 const client=new Client({name:"vibe-stable-are-e2e",version:"1.0.0"});
 const out={entry,project,at:new Date().toISOString(),context:"public stable; fresh local HOME; fetch BLOCKED",
  calls:[],taskChecks:{},toolList:null};
