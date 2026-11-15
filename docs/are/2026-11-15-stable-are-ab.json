@@ -1,0 +1,582 @@
+{
+  "schema": "vibe.public.are-stable-ab.v1",
+  "recordedAt": "2026-11-15",
+  "publicBaselineVersion": "1.0.14",
+  "publicTargetVersion": "1.0.15",
+  "pinnedProjectGitSha": "010ffe3304d3840bafeee7ea30f07a3abd69126d",
+  "transport": "real MCP SDK stdio",
+  "environment": "disposable HOME and blocked global fetch, original public telemetry default unchanged",
+  "measurement": "UTF-8 bytes of MCP tool content text, not LLM model token usage",
+  "replicatesPerVersion": 3,
+  "results": {
+    "before": {
+      "toolCount": 19,
+      "toolListJsonBytes": 15608,
+      "annotatedTools": 0,
+      "toolSizes": [
+        {
+          "name": "vibe_version",
+          "bytes": 577
+        },
+        {
+          "name": "vibe_account_connect",
+          "bytes": 419
+        },
+        {
+          "name": "vibe_session_start",
+          "bytes": 951
+        },
+        {
+          "name": "vibe_skip_current",
+          "bytes": 464
+        },
+        {
+          "name": "vibe_checkpoint",
+          "bytes": 624
+        },
+        {
+          "name": "vibe_project_status",
+          "bytes": 581
+        },
+        {
+          "name": "vibe_findings",
+          "bytes": 633
+        },
+        {
+          "name": "vibe_legacy_audit",
+          "bytes": 692
+        },
+        {
+          "name": "vibe_evolution_audit",
+          "bytes": 682
+        },
+        {
+          "name": "vibe_finding_intelligence",
+          "bytes": 749
+        },
+        {
+          "name": "vibe_explain_finding",
+          "bytes": 706
+        },
+        {
+          "name": "vibe_product_intent",
+          "bytes": 644
+        },
+        {
+          "name": "vibe_set_product_intent",
+          "bytes": 1171
+        },
+        {
+          "name": "vibe_get_architecture_review_request",
+          "bytes": 957
+        },
+        {
+          "name": "vibe_submit_architecture_review",
+          "bytes": 1624
+        },
+        {
+          "name": "vibe_outcome_record_action",
+          "bytes": 1068
+        },
+        {
+          "name": "vibe_outcome_verify",
+          "bytes": 1245
+        },
+        {
+          "name": "vibe_outcome_status",
+          "bytes": 805
+        },
+        {
+          "name": "vibe_feedback",
+          "bytes": 996
+        }
+      ],
+      "calls": {
+        "vibe_version": {
+          "textBytes": [
+            519,
+            519,
+            519
+          ],
+          "elapsedMs": [
+            3.77,
+            3.74,
+            4.22
+          ],
+          "medianTextBytes": 519,
+          "medianElapsedMs": 3.77,
+          "isError": false
+        },
+        "vibe_account_connect": {
+          "textBytes": [
+            245,
+            245,
+            245
+          ],
+          "elapsedMs": [
+            0.75,
+            0.47,
+            0.5
+          ],
+          "medianTextBytes": 245,
+          "medianElapsedMs": 0.5,
+          "isError": false
+        },
+        "vibe_project_status": {
+          "textBytes": [
+            80739,
+            80735,
+            80738
+          ],
+          "elapsedMs": [
+            820.26,
+            418.97,
+            507.37
+          ],
+          "medianTextBytes": 80738,
+          "medianElapsedMs": 507.37,
+          "isError": false
+        },
+        "vibe_findings": {
+          "textBytes": [
+            77103,
+            77103,
+            77103
+          ],
+          "elapsedMs": [
+            34.11,
+            29.48,
+            29.79
+          ],
+          "medianTextBytes": 77103,
+          "medianElapsedMs": 29.79,
+          "isError": false
+        },
+        "vibe_product_intent": {
+          "textBytes": [
+            1269,
+            1269,
+            1269
+          ],
+          "elapsedMs": [
+            31.86,
+            32.66,
+            29.84
+          ],
+          "medianTextBytes": 1269,
+          "medianElapsedMs": 31.86,
+          "isError": false
+        },
+        "intent_preview": {
+          "textBytes": [
+            1298,
+            1298,
+            1298
+          ],
+          "elapsedMs": [
+            338.06,
+            330.9,
+            390.07
+          ],
+          "medianTextBytes": 1298,
+          "medianElapsedMs": 338.06,
+          "isError": false
+        },
+        "explain_valid_or_missing": {
+          "textBytes": [
+            8142,
+            8141,
+            8142
+          ],
+          "elapsedMs": [
+            33.53,
+            31.31,
+            31.43
+          ],
+          "medianTextBytes": 8142,
+          "medianElapsedMs": 31.43,
+          "isError": false
+        },
+        "explain_missing": {
+          "textBytes": [
+            56,
+            56,
+            56
+          ],
+          "elapsedMs": [
+            26.44,
+            24.46,
+            26.72
+          ],
+          "medianTextBytes": 56,
+          "medianElapsedMs": 26.44,
+          "isError": false
+        },
+        "intelligence_missing": {
+          "textBytes": [
+            56,
+            56,
+            56
+          ],
+          "elapsedMs": [
+            29.88,
+            24.04,
+            25.97
+          ],
+          "medianTextBytes": 56,
+          "medianElapsedMs": 25.97,
+          "isError": false
+        },
+        "cancel_idle": {
+          "textBytes": [
+            161,
+            161,
+            161
+          ],
+          "elapsedMs": [
+            0.5,
+            0.5,
+            0.55
+          ],
+          "medianTextBytes": 161,
+          "medianElapsedMs": 0.5,
+          "isError": false
+        }
+      },
+      "taskChecks": [
+        {
+          "T1": {
+            "statusReadable": true,
+            "summary": false,
+            "hasRiskIndex": false
+          },
+          "T2": {
+            "preview": false,
+            "persisted": false
+          },
+          "T3": {
+            "firstFindingId": "VM-3FA3CC1804",
+            "errorProper": false
+          }
+        },
+        {
+          "T1": {
+            "statusReadable": true,
+            "summary": false,
+            "hasRiskIndex": false
+          },
+          "T2": {
+            "preview": false,
+            "persisted": false
+          },
+          "T3": {
+            "firstFindingId": "VM-3FA3CC1804",
+            "errorProper": false
+          }
+        },
+        {
+          "T1": {
+            "statusReadable": true,
+            "summary": false,
+            "hasRiskIndex": false
+          },
+          "T2": {
+            "preview": false,
+            "persisted": false
+          },
+          "T3": {
+            "firstFindingId": "VM-3FA3CC1804",
+            "errorProper": false
+          }
+        }
+      ]
+    },
+    "after": {
+      "toolCount": 19,
+      "toolListJsonBytes": 18129,
+      "annotatedTools": 19,
+      "toolSizes": [
+        {
+          "name": "vibe_version",
+          "bytes": 681
+        },
+        {
+          "name": "vibe_account_connect",
+          "bytes": 523
+        },
+        {
+          "name": "vibe_session_start",
+          "bytes": 1056
+        },
+        {
+          "name": "vibe_skip_current",
+          "bytes": 568
+        },
+        {
+          "name": "vibe_checkpoint",
+          "bytes": 729
+        },
+        {
+          "name": "vibe_project_status",
+          "bytes": 866
+        },
+        {
+          "name": "vibe_findings",
+          "bytes": 910
+        },
+        {
+          "name": "vibe_legacy_audit",
+          "bytes": 797
+        },
+        {
+          "name": "vibe_evolution_audit",
+          "bytes": 787
+        },
+        {
+          "name": "vibe_finding_intelligence",
+          "bytes": 854
+        },
+        {
+          "name": "vibe_explain_finding",
+          "bytes": 864
+        },
+        {
+          "name": "vibe_product_intent",
+          "bytes": 749
+        },
+        {
+          "name": "vibe_set_product_intent",
+          "bytes": 1402
+        },
+        {
+          "name": "vibe_get_architecture_review_request",
+          "bytes": 1062
+        },
+        {
+          "name": "vibe_submit_architecture_review",
+          "bytes": 1728
+        },
+        {
+          "name": "vibe_outcome_record_action",
+          "bytes": 1173
+        },
+        {
+          "name": "vibe_outcome_verify",
+          "bytes": 1349
+        },
+        {
+          "name": "vibe_outcome_status",
+          "bytes": 910
+        },
+        {
+          "name": "vibe_feedback",
+          "bytes": 1101
+        }
+      ],
+      "calls": {
+        "vibe_version": {
+          "textBytes": [
+            519,
+            519,
+            519
+          ],
+          "elapsedMs": [
+            11.6,
+            3.97,
+            3.89
+          ],
+          "medianTextBytes": 519,
+          "medianElapsedMs": 3.97,
+          "isError": false
+        },
+        "vibe_account_connect": {
+          "textBytes": [
+            245,
+            245,
+            245
+          ],
+          "elapsedMs": [
+            0.8,
+            0.63,
+            0.47
+          ],
+          "medianTextBytes": 245,
+          "medianElapsedMs": 0.63,
+          "isError": false
+        },
+        "vibe_project_status": {
+          "textBytes": [
+            2255,
+            2255,
+            2255
+          ],
+          "elapsedMs": [
+            507.36,
+            435.66,
+            439.92
+          ],
+          "medianTextBytes": 2255,
+          "medianElapsedMs": 439.92,
+          "isError": false
+        },
+        "vibe_findings": {
+          "textBytes": [
+            4304,
+            4304,
+            4304
+          ],
+          "elapsedMs": [
+            35.29,
+            36.97,
+            35.67
+          ],
+          "medianTextBytes": 4304,
+          "medianElapsedMs": 35.67,
+          "isError": false
+        },
+        "vibe_product_intent": {
+          "textBytes": [
+            1269,
+            1269,
+            1269
+          ],
+          "elapsedMs": [
+            26.82,
+            34.18,
+            25
+          ],
+          "medianTextBytes": 1269,
+          "medianElapsedMs": 26.82,
+          "isError": false
+        },
+        "intent_preview": {
+          "textBytes": [
+            365,
+            365,
+            365
+          ],
+          "elapsedMs": [
+            52.4,
+            62.54,
+            55.24
+          ],
+          "medianTextBytes": 365,
+          "medianElapsedMs": 55.24,
+          "isError": false
+        },
+        "explain_valid_or_missing": {
+          "textBytes": [
+            7576,
+            7576,
+            7575
+          ],
+          "elapsedMs": [
+            29.92,
+            40.42,
+            28.35
+          ],
+          "medianTextBytes": 7576,
+          "medianElapsedMs": 29.92,
+          "isError": false
+        },
+        "explain_missing": {
+          "textBytes": [
+            172,
+            172,
+            172
+          ],
+          "elapsedMs": [
+            27.87,
+            73.02,
+            26.13
+          ],
+          "medianTextBytes": 172,
+          "medianElapsedMs": 27.87,
+          "isError": true
+        },
+        "intelligence_missing": {
+          "textBytes": [
+            180,
+            180,
+            180
+          ],
+          "elapsedMs": [
+            25.19,
+            285.87,
+            24.62
+          ],
+          "medianTextBytes": 180,
+          "medianElapsedMs": 25.19,
+          "isError": true
+        },
+        "cancel_idle": {
+          "textBytes": [
+            161,
+            161,
+            161
+          ],
+          "elapsedMs": [
+            0.52,
+            1.06,
+            0.47
+          ],
+          "medianTextBytes": 161,
+          "medianElapsedMs": 0.52,
+          "isError": false
+        }
+      },
+      "taskChecks": [
+        {
+          "T1": {
+            "statusReadable": true,
+            "summary": true,
+            "hasRiskIndex": true
+          },
+          "T2": {
+            "preview": true,
+            "persisted": true
+          },
+          "T3": {
+            "firstFindingId": "VM-3FA3CC1804",
+            "errorProper": true
+          }
+        },
+        {
+          "T1": {
+            "statusReadable": true,
+            "summary": true,
+            "hasRiskIndex": true
+          },
+          "T2": {
+            "preview": true,
+            "persisted": true
+          },
+          "T3": {
+            "firstFindingId": "VM-3FA3CC1804",
+            "errorProper": true
+          }
+        },
+        {
+          "T1": {
+            "statusReadable": true,
+            "summary": true,
+            "hasRiskIndex": true
+          },
+          "T2": {
+            "preview": true,
+            "persisted": true
+          },
+          "T3": {
+            "firstFindingId": "VM-3FA3CC1804",
+            "errorProper": true
+          }
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "no measured host token consumption or automatic permissions",
+    "3 sample latencies are not proof of speedup",
+    "tool listing grew to support accurate hints"
+  ]
+}

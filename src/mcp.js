@@ -12,7 +12,8 @@ import { appendFeedback } from "./feedback.js";
 import { loadState } from "./history.js";
 import { findProjectRoot, projectIdentity } from "./project.js";
 import { recordOutcomeAction, recordOutcomeVerification, listOutcomeRecords } from "./outcomes.js";
-import { saveExplicitIntent } from "./intent.js";
+import { saveExplicitIntent, previewExplicitIntent } from "./intent.js";
+import { buildProjectStatusView, buildProjectFilesView, buildFindingsPage, compactFindingDetail } from "./mcp-projections.js";
 import { markSurfacedNotices, shouldSurfaceNotice } from "./notices.js";
 import {
   createArchitectureReview,
@@ -45,14 +46,62 @@ import { recommendationGroups } from "./diagnostic-quality.js";
 import { highSeverityReviewQueue } from "./finding-intelligence.js";
 import { compareVersions, consumeUpdateNotice, observeAvailableUpdate, scheduleAutomaticUpdate, updateStatus } from "./update.js";
 
-function textResult(value) {
-  const runtimeNotice = consumeUpdateNotice();
+function textResult(value, {consumeNotice=true}={}) {
+  const runtimeNotice = consumeNotice ? consumeUpdateNotice() : null;
   const payload = runtimeNotice && value && typeof value === "object" && !Array.isArray(value)
     ? { ...value, runtimeNotice }
     : value;
   return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
 }
 
+// Tool failures are distinct from ordinary disabled/empty/needs_input states.
+export function mcpErrorResult(code, {message=null,retryable=false,next=null,details={}}={}){
+  const safe=String(code||"tool_execution_failed").slice(0,96);
+  return {isError:true,content:[{type:"text",text:JSON.stringify({
+    code:safe,message:message||safe,retryable:Boolean(retryable),next,...details
+  })}]};
+}
+function safeToolFailure(error){
+  const message=String(error?.message||"");
+  const code=/^[a-z][a-z0-9_]{1,95}$/.test(message)?message:"tool_execution_failed";
+  return mcpErrorResult(code,{
+    message:code==="tool_execution_failed"?"Tool execution failed; check local diagnostics.":message,
+    retryable:/timeout|timed_out|unavailable|busy|temporar|rate_limit/i.test(message),
+    next:"Retry if transient; otherwise inspect vibe-monitor doctor --json."
+  });
+}
+const MCP_ANNOTATIONS=Object.freeze({
+  // Truthful side effects include local state, telemetry queues, Cloud policy and cancellation.
+  vibe_version:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+  vibe_account_connect:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+  vibe_session_start:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_skip_current:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:false},
+  vibe_checkpoint:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_project_status:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_findings:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_legacy_audit:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_evolution_audit:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_finding_intelligence:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_explain_finding:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_product_intent:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_set_product_intent:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true},
+  vibe_get_architecture_review_request:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_submit_architecture_review:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true},
+  vibe_outcome_record_action:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_outcome_verify:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true},
+  vibe_outcome_status:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+  vibe_feedback:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}
+});
+export function sessionFailureMcpResult(reason,callId=null,elapsedMs=0){
+  const payload=buildSkippedSessionPayload(reason,callId,elapsedMs);
+  if(reason==="user_skipped")return textResult(payload,{consumeNotice:false});
+  return mcpErrorResult(reason,{
+    message:"Vibe Monitor did not complete the requested scan: "+reason,
+    retryable:["scan_timeout","scan_worker_unavailable","scan_worker_failed",
+      "scan_worker_exit","scan_worker_incomplete","scan_failed"].includes(reason),
+    next:payload.monitoring.nextAction,details:payload
+  });
+}
 function recordCallTiming(result, callStartedAt) {
   if (!result?.monitoring) return;
   result.monitoring.scanDurationMs = Number.isFinite(result.durationMs) ? result.durationMs : null;
@@ -407,27 +456,35 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   const budget = createMonitoringBudgetSession();
   const projectContext = createMcpProjectContext();
   const activeSessionScans = new Set();
+  const registerTool=(name,definition,handler)=>{
+    const annotations=MCP_ANNOTATIONS[name];
+    if(!annotations)throw new Error("unreviewed_tool_effects:"+name);
+    return server.registerTool(name,{...definition,annotations},async (...args)=>{
+      try{return await handler(...args)}
+      catch(error){return safeToolFailure(error)}
+    });
+  };
   if(!isOpenClientDistribution())void syncCloudDevice().catch(() => {});
   let noticesShownThisSession = 0;
   const pathSchema = z.string().optional().describe("Absolute path to ONE coding project (prefer its Git repository root), NOT the IDE's application folder or a parent of multiple repositories. When omitted, uses the last successfully assessed project or a recognizable Git/project cwd; otherwise returns project_path_required.");
 
-  server.registerTool("vibe_version", {
+  registerTool("vibe_version", {
     description: "Get the Vibe Monitor version currently running in this MCP process, the installed current/previous runtime versions, staged update, and update state. A process may still run an older bundle after the installed pointer changes. Use this tool when the user asks which Vibe Monitor version is running or installed. schemaVersion and evidenceVersion are data format versions, NOT the software version.",
     inputSchema: {}
   }, async () => {
     const status = await updateStatus({ refresh: false });
-    return textResult(buildVersionToolPayload(status));
+    return textResult(buildVersionToolPayload(status),{consumeNotice:false});
   });
 
   // Account linking always starts on the website, which issues the one-time
   // prompt. This tool only tells the agent where to send the human.
   if(isOpenClientDistribution()){
-   server.registerTool("vibe_account_connect",{
+   registerTool("vibe_account_connect",{
     description:"Explain how to link this Vibe Monitor installation to the user's account. Call ONLY when the human asks to link this device. Makes no network request.",
     inputSchema:{project_path:z.string().optional().describe("Ignored; kept for compatibility.")}
    },async()=>textResult({status:"start_on_website",
     url:"https://vibe.fde.fan/app/",
-    nextAction:"Ask the human to sign in at https://vibe.fde.fan/app/, click \"Add device\" and paste the copied prompt here. Then run the single command in that prompt."}));
+    nextAction:"Ask the human to sign in at https://vibe.fde.fan/app/, click \"Add device\" and paste the copied prompt here. Then run the single command in that prompt."},{consumeNotice:false}));
   }
 
   const disabledPayload = buildDisabledPolicyPayload;
@@ -568,7 +625,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     syncCloudBestEffort();
   }
 
-  server.registerTool("vibe_session_start", {
+  registerTool("vibe_session_start", {
     description: "Start or resume Vibe Monitor for the current coding session. Can be interrupted or explicitly skipped without preventing coding. For an explicit user Skip request, set mode=skip. Otherwise establishes a bounded project assessment.",
     inputSchema: {
       path: pathSchema,
@@ -657,7 +714,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
         : "scan_failed";
       lifecycle(reason === "user_skipped" ? "call.skipped" : reason === "scan_cancelled" ? "call.cancelled"
         : reason === "scan_timeout" ? "call.timeout" : "call.failed", reason);
-      return textResult(buildSkippedSessionPayload(reason, callId, Date.now() - callStartedAt));
+      return sessionFailureMcpResult(reason,callId,Date.now() - callStartedAt);
     } finally {
       activeSessionScans.delete(controller);
       extra.signal?.removeEventListener("abort", onCancel);
@@ -665,7 +722,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   });
 
 
-  server.registerTool("vibe_skip_current", {
+  registerTool("vibe_skip_current", {
     description: "Skip an in-progress Vibe Monitor Session Start, at the user's explicit request. Cancels active scanning in this MCP server without stopping coding or disabling future monitoring. Agent hosts may expose this tool as an action; Vibe Monitor cannot insert custom buttons in host UI.",
     inputSchema: {}
   }, async () => {
@@ -675,7 +732,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       nextAction: "Continue the coding task normally. Skipping Vibe Monitor does not authorize or complete a scan." });
   });
 
-  server.registerTool("vibe_checkpoint", {
+  registerTool("vibe_checkpoint", {
     description: "Checkpoint structural evolution after a meaningful implementation batch. Persists a snapshot and reports stage-aware findings.",
     inputSchema: { path: pathSchema }
   }, async ({ path }) => {
@@ -724,10 +781,11 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     return textResult(payload);
   });
 
-  server.registerTool("vibe_project_status", {
+  registerTool("vibe_project_status", {
     description: "Read current architecture-evolution status without creating a history snapshot.",
-    inputSchema: { path: pathSchema }
-  }, async ({ path }) => {
+    inputSchema: {path:pathSchema,detail:z.enum(["summary","full","files"]).optional(),
+      limit:z.number().int().min(1).max(50).optional(),offset:z.number().int().min(0).optional()}
+  }, async ({ path,detail="summary",limit=20,offset=0 }) => {
     const callStartedAt = Date.now();
     const callId = crypto.randomUUID();
     const { result, disabled, disabledPayload } = await analyzeWithPolicy(path, {
@@ -746,13 +804,18 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       telemetryStartedAt
     });
     recordCallTiming(result, callStartedAt);
-    return textResult(result);
+    if(detail==="files"){
+      const scanned=scanProject(result.project.root,{limits:{maxElapsedMs:8000,maxSourceFiles:20000}});
+      return textResult(buildProjectFilesView(result,scanned,{limit,offset}));
+    }
+    return textResult(buildProjectStatusView(result,{detail}));
   });
 
-  server.registerTool("vibe_findings", {
+  registerTool("vibe_findings", {
     description: "Return current findings ordered by evolution stage and pressure score. Findings include Do now, Prepare, Do not do yet, and Next trigger.",
-    inputSchema: { path: pathSchema }
-  }, async ({ path }) => {
+    inputSchema: {path:pathSchema,limit:z.number().int().min(1).max(50).optional(),
+      offset:z.number().int().min(0).optional(),detail:z.enum(["summary","full"]).optional()}
+  }, async ({path,limit=5,offset=0,detail="summary"}) => {
     const callStartedAt = Date.now();
     const callId = crypto.randomUUID();
     const { result, disabled, disabledPayload } = await analyzeWithPolicy(path, {
@@ -771,16 +834,18 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       telemetryStartedAt
     });
     recordCallTiming(result, callStartedAt);
-    return textResult({
-      project: result.project, status: result.status, findings: result.findings,
-      recommendationGroups: recommendationGroups(result.findings),
-      highSeverityReviewQueue: highSeverityReviewQueue(result.findings, {limit: 10}),
-      monitoring: { ...result.monitoring }
-    });
+    const view=buildFindingsPage(result,{limit,offset,detail});
+    if(detail==="full"){
+      // Full pages remain backward-compatible with global recommendations.
+      view.recommendationGroups=recommendationGroups(result.findings);
+      view.highSeverityReviewQueue=highSeverityReviewQueue(result.findings,{limit:10});
+      view.legacySummaryIncluded=true;
+    }
+    return textResult(view);
   });
 
   // Explicit, read-only retirement inventory; never deletes user code or data.
-  server.registerTool("vibe_legacy_audit", {
+  registerTool("vibe_legacy_audit", {
     description: "Find local legacy compatibility, retired feature markers, disabled branches and possibly unreferenced private functions. Each candidate requires consumer verification; nothing is auto-deleted.",
     inputSchema: { path: pathSchema }
   }, async ({ path }) => {
@@ -794,7 +859,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
   });
 
   // Explicit opt-in deep audit; no score changes and no cloud uploads.
-  server.registerTool("vibe_evolution_audit", {
+  registerTool("vibe_evolution_audit", {
     description: "Read-only source-based structural duplicate candidates, legacy consumer-reference review, and multi-snapshot code evolution with Git churn; no automatic deletion or causal claims.",
     inputSchema: { path: pathSchema }
   }, async ({ path }) => {
@@ -816,7 +881,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     });
   });
 
-  server.registerTool("vibe_finding_intelligence", {
+  registerTool("vibe_finding_intelligence", {
     description: "Read risk trend, evidence-review status and explicitly confirmed Product Intent guidance for one Finding. Includes an unverified baseline for future feedback, never causal attribution.",
     inputSchema: { id: z.string().max(100), path: pathSchema }
   }, async ({ id, path }) => {
@@ -825,7 +890,10 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     });
     if (disabled) return textResult(disabledPayload);
     const finding = result.findings.find(item => item.id === id);
-    if (!finding) return textResult({ error: "finding_not_found", id });
+    if (!finding) return mcpErrorResult("finding_not_found",{
+      message:"Finding ID was not present in the current project analysis.",
+      next:"Call vibe_findings for a valid ID.",details:{id}
+    });
     return textResult({
       findingId: finding.id, family: finding.family, stage: finding.stage,
       intelligence: finding.intelligence || null,
@@ -834,13 +902,13 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     });
   });
 
-  server.registerTool("vibe_explain_finding", {
+  registerTool("vibe_explain_finding", {
     description: "Explain one finding with evidence, standards mapping, heuristic disclosure, staged action and over-engineering guard.",
     inputSchema: {
       id: z.string().describe("Finding ID such as VM-ABC123"),
-      path: pathSchema
+      path: pathSchema,format:z.enum(["compact","full"]).optional()
     }
-  }, async ({ id, path }) => {
+  }, async ({ id, path,format="compact" }) => {
     const callStartedAt = Date.now();
     const callId = crypto.randomUUID();
     const { result, disabled, disabledPayload } = await analyzeWithPolicy(path, {
@@ -860,10 +928,17 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       telemetryStartedAt
     });
     recordCallTiming(result, callStartedAt);
-    return textResult(finding ? { ...findingDetail(result.project?.root || path || process.cwd(), finding, result.summary), monitoring: { ...result.monitoring } } : { error: "finding_not_found", id });
+    if(!finding)return mcpErrorResult("finding_not_found",{
+      message:"Finding ID was not present in the current analysis.",
+      next:"Call vibe_findings for a valid ID.",details:{id}
+    });
+    return textResult(compactFindingDetail({
+      ...findingDetail(result.project?.root || path || process.cwd(),finding,result.summary),
+      monitoring:{...result.monitoring}
+    },{format}));
   });
 
-  server.registerTool("vibe_product_intent", {
+  registerTool("vibe_product_intent", {
     description: "Read Vibe Monitor's current product-intent context. Inferred values are advisory; explicit values come only from the user's own stated intent.",
     inputSchema: { path: pathSchema }
   }, async ({ path }) => {
@@ -887,7 +962,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     return textResult({ project: result.project, productIntent: result.productIntent });
   });
 
-  server.registerTool("vibe_set_product_intent", {
+  registerTool("vibe_set_product_intent", {
     description: "Store explicit product-intent facts locally when the user has clearly stated them. Do not turn guesses into explicit intent and do not ask these questions unless an architecture decision materially depends on them.",
     inputSchema: {
       path: pathSchema,
@@ -896,9 +971,25 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
       tenancy: z.enum(["unknown", "single", "multi"]).optional(),
       criticality: z.enum(["unknown", "casual", "important", "critical"]).optional(),
       scale: z.enum(["unknown", "small", "growing", "large"]).optional(),
-      dataSensitivity: z.enum(["unknown", "low", "standard", "sensitive"]).optional()
+      dataSensitivity: z.enum(["unknown", "low", "standard", "sensitive"]).optional(),
+      dry_run: z.boolean().optional().describe("Preview and validate without writing any local data, telemetry, or Cloud request.")
     }
-  }, async ({ path, ...intentPatch }) => {
+  }, async ({ path,dry_run=false,...intentPatch }) => {
+    if(Object.keys(intentPatch).length===0)return textResult({
+      status:"needs_input",
+      missingFields:["delivery","audience","tenancy","criticality","scale","dataSensitivity"],
+      next:"Provide at least one explicit user-confirmed field; nothing has changed."
+    },{consumeNotice:false});
+    if(dry_run){
+      const selection=projectContext.resolve(path);
+      if(isFilesystemRoot(selection.path)||
+          (selection.fallbackToHostCwd&&!isSafeImplicitProjectCwd(selection.path)))
+        return textResult(projectPathRequiredPayload(),{consumeNotice:false});
+      const identity=projectIdentity(findProjectRoot(selection.path));
+      return textResult({dryRun:true,validated:true,persisted:false,cloudRequests:0,
+        project:{id:identity.id},...previewExplicitIntent(identity.id,intentPatch)},
+        {consumeNotice:false});
+    }
     const callStartedAt = Date.now();
     const callId = crypto.randomUUID();
     const beforeState = await analyzeWithPolicy(path, {
@@ -929,7 +1020,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     return textResult({ project: result.project, productIntent: result.productIntent });
   });
 
-  server.registerTool("vibe_get_architecture_review_request", {
+  registerTool("vibe_get_architecture_review_request", {
     description: "Create a bounded ARP v1 semantic architecture review request for a finding that explicitly recommends semantic review. The request contains normalized architecture evidence and no raw source code or project path.",
     inputSchema: {
       id: z.string().describe("Finding ID such as VM-ABC123"),
@@ -948,7 +1039,9 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
 
     const finding = result.findings.find(item => item.id === id) || null;
     if (!finding) {
-      return textResult({ error: "finding_not_found", id });
+      return mcpErrorResult("finding_not_found",{
+        message:"Finding not present in current analysis.",next:"Call vibe_findings.",details:{id}
+      });
     }
     if (!finding.semanticReview?.recommended) {
       return textResult({
@@ -1006,7 +1099,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     });
   });
 
-  server.registerTool("vibe_submit_architecture_review", {
+  registerTool("vibe_submit_architecture_review", {
     description: "Submit one ARP v1 semantic architecture review. Different agents may legitimately return different verdicts. Full model-generated review text stays local; Cloud receives only bounded structured review metadata for comparison and outcome learning.",
     inputSchema: {
       reviewId: z.string().uuid(),
@@ -1040,7 +1133,10 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     if(access.enabled===false)return textResult(disabledPayload(access));
     const existing = loadArchitectureReview(reviewId);
     if (!existing?.request) {
-      return textResult({ error: "review_request_not_found", reviewId });
+      return mcpErrorResult("review_request_not_found",{
+        message:"No saved architecture request matches this review ID.",
+        next:"Call vibe_get_architecture_review_request first.",details:{reviewId}
+      });
     }
 
     const response = {
@@ -1063,9 +1159,9 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     try {
       stored = persistArchitectureReviewResponse(reviewId, response);
     } catch (error) {
-      return textResult({
-        error: error?.message || "review_response_invalid",
-        reviewId
+      return mcpErrorResult("review_response_invalid",{
+        message:"Review response did not meet the saved request contract.",
+        next:"Re-read the original review request.",details:{reviewId}
       });
     }
 
@@ -1095,7 +1191,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     return { identity, state: loadState(identity.id) };
   }
 
-  server.registerTool("vibe_outcome_record_action", {
+  registerTool("vibe_outcome_record_action", {
     description: "ONLY after a user or agent explicitly states they applied, deferred, or dismissed a specific Vibe recommendation. Record a REPORTED action, not inferred code changes; never claim a fix occurred. Idempotent via stable submissionId.",
     inputSchema: {
       path: pathSchema,
@@ -1110,9 +1206,15 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     if (remote.enabled === false) return textResult(disabledPayload(remote));
     const {identity, state} = outcomeProject(path);
     if (!state.latest || state.findings?.evidenceVersion !== state.latest?.evidenceVersion)
-      return textResult({error:"complete_comparable_baseline_required",next:"Run vibe_checkpoint"});
+      return mcpErrorResult("complete_comparable_baseline_required",{
+        message:"A comparable saved checkpoint is required.",
+        retryable:true,next:"Run vibe_checkpoint."
+      });
     const finding = state.findings?.items?.[id];
-    if (!finding) return textResult({error:"finding_not_found_in_saved_snapshot",id});
+    if (!finding) return mcpErrorResult("finding_not_found_in_saved_snapshot",{
+      message:"Finding missing from saved checkpoint.",
+      next:"Review saved checkpoint first.",details:{id}
+    });
     try {
       const record=recordOutcomeAction(identity.id,finding,{
         disposition,actor,changeRef:changeRef||null,submissionId:submissionId||null,
@@ -1122,10 +1224,10 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
         projectInstanceId:identity.projectInstanceId,sessionId,agent,record,
         policyRevision:state.latest?.scoringPolicy?.revision}))syncCloudBestEffort();}catch{}
       return textResult({recorded:true,...record});
-    } catch(error) {return textResult({recorded:false,error:error.message});}
+    } catch(error) {return safeToolFailure(error);}
   });
 
-  server.registerTool("vibe_outcome_verify", {
+  registerTool("vibe_outcome_verify", {
     description: "Record ONLY explicit user-reported verification for a previously reported action. User affirmation plus regression-test/independent-review evidence type is still not proof of causation. Never fabricate execution or user confirmation.",
     inputSchema: {
       path: pathSchema,
@@ -1144,10 +1246,10 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
         projectInstanceId:identity.projectInstanceId,sessionId,agent,record,
         policyRevision:state.latest?.scoringPolicy?.revision}))syncCloudBestEffort();}catch{}
       return textResult({recorded:true,...record});
-    }catch(error){return textResult({recorded:false,error:error.message});}
+    }catch(error){return safeToolFailure(error);}
   });
 
-  server.registerTool("vibe_outcome_status", {
+  registerTool("vibe_outcome_status", {
     description: "Read local recommendation→reported action→comparable follow-up→user verification and recurrence history. No project scan or Cloud telemetry. Risk improvement is observational, attribution remains unproven.",
     inputSchema: {path:pathSchema, id:z.string().max(100).optional(),limit:z.number().int().min(1).max(100).optional()}
   }, async ({path,id,limit}) => {
@@ -1157,7 +1259,7 @@ export async function runMcpServer({ agent: explicitAgent = null } = {}) {
     return textResult(listOutcomeRecords(identity.id,{findingId:id||null,limit:limit||25}));
   });
 
-  server.registerTool("vibe_feedback", {
+  registerTool("vibe_feedback", {
     description: "Record explicit user feedback about a Vibe Monitor finding. Use only when the user clearly says a warning was useful, wrong, too early, too late, or confusing. Never ask for feedback after every warning.",
     inputSchema: {
       id: z.string().describe("Finding ID such as VM-ABC123"),
