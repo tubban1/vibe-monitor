@@ -34,6 +34,7 @@ Reproduce with node scripts/are-stable-stdio-probe.mjs --project PATH --output /
 
 - On macOS/Node 22: npm test PASSED 139/139, zero failures/skips. Real MCP SDK stdio tests included three independent task checks: project risk/drilldown, product intent preview/write, and Finding explanation.
 - npm run build and npm pack --dry-run succeeded; public package allowlist is enforced by official stable release workflow.
+- Public Ubuntu CI initially caught two moderate upstream npm advisory findings in transitive Hono dependencies. Upgraded package-lock resolutions to Hono 4.13.18 and @hono/node-server 2.1.8; subsequent npm audit --omit=dev --audit-level=moderate reports **zero vulnerabilities** and all 139 tests re-passed. Security gate remained enabled.
 - Live stdio cancellation: synthetic 650-source-file scan reached analysis, vibe_skip_current cancelled 1 active scan, session returned normal skipped result, and later project_status recovered with assessmentAvailable=true. Reproduce via node scripts/are-stable-cancel-probe.mjs.
 - Dry run made no intent.json or activity entry, while actual writes still persisted. Missing legacy encryption key did not generate new secrets or mutate encrypted data.
 - Bad Finding IDs and actual scan failure results use MCP isError=true; real user skip is not an error.
